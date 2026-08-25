@@ -54,6 +54,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N52 视觉理解 V2** | 扩展 vision_analyze：视频/录屏 ffmpeg 抽首帧 + PDF/表格转图后走视觉分析，缺依赖静默降级（ADR-047） | 能力增强 | ✅ |
 | **N54 声纹防欺骗** | 声纹注册 enroll_speaker + 反欺骗 anti_spoof（V1 规则版：静音/时长/能量 + 已注册声纹比对，float32/int16 缩放兼容，静默降级，ADR-049） | 安全 | ✅ |
 | **N55 向量 RAG 评估闸门** | 确定性量化记忆库规模（内部+外接 .md 篇数/字符）对比阈值 + 漏召回案例留痕，三态判定是否启动本地 embedding+faiss 评估（ADR-050） | 记忆升级 | ✅ |
+| **N56 媒体生成** | 音乐程序化合成写 wav（numpy+wave 零依赖，情绪影响调式速度）+ 视频/图片后端占位（待接 seedance/seedream，ADR-052） | 能力增强 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
 
@@ -160,6 +161,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 - **N52 已完成**：P3 视觉理解 V2（ADR-047，N50 扩展）落地。`skills/handlers/vision_analyze.py`（新增 `_ffmpeg_bin`/`_video_first_frame`（视频/录屏 ffmpeg 抽首帧，对齐 voice/tts.py ffmpeg 惯例）+ `_pdf_to_img`（pdf2image 转首页，缺依赖可读提示）+ `_table_to_img`（csv 用 Pillow 渲染表格图（xlsx 留提示），缺依赖可读提示）+ `vision_analyze` 经 `_resource_to_data_uri` 按 `_PDF_SUFFIXES/_TABLE_SUFFIXES/_VIDEO_SUFFIXES` 分派；空输入/文件不存在/缺 key/转换失败/模型失败全部静默降级，保持原文案契约）+ `skills/vision_analyze.yaml`（描述与触发词扩展到看 PDF/读表格/看视频/录屏/抽帧）。测试：`tests/test_vision_v2.py` 11 例（触发词扩展/无输入/图片仍走原 data URI/csv 渲染出图/csv 走模型/xlsx 留提示/csv 缺 Pillow 降级/PDF 缺依赖降级/视频抽帧 mock 走模型/缺 ffmpeg 降级/抽帧失败降级），`tests/test_vision_analyze.py` 8 例回归不破，全量 680 passed、2 skipped。
 - **N54 已完成**：P4 声纹防欺骗（ADR-049，自研 voice）落地。`chuan/voice/spoof.py`（`extract_features`（numpy 规则：RMS 能量轮廓 PROFILE_POINTS=32 向量 + rms/zcr/静音占比/时长）+ `enroll_speaker`（原子落盘 data/speakers/<name>.json，防路径穿越 `_safe_name`，过短/全静音拒入）+ `load_speaker`/`list_speakers`/`remove_speaker`（磁盘真相）+ `anti_spoof`（两级：① 回放/环境噪声规则——静音占比过高/过短/能量过低判 spoof；② 已注册声纹 `_compare_voiceprint` 能量轮廓相关+标量贴近加权打分，低于阈值判伪造；未注册旁路通过）；float32(-1..1) 域计算，int16 输入自动 ×1/32768（对齐 wake_word.py 教训）；全程静默降级返回 dict 不抛错）。测试：`tests/test_voice_spoof.py` 13 例（enroll 写盘读回/拒静音过短/路径穿越/特征形状/静音判 spoof/过短判 spoof/未注册旁路/匹配通过/异声纹判伪造/未知名旁路/list+remove/int16-float32 缩放/garbage 不抛），`tests/test_voice.py` 46 例回归不破，全量 680 passed、2 skipped。
 - **N55 已完成**：P3 向量 RAG 评估闸门（ADR-050，2026-08-24 RAG 可行性评估落地）完成。`skills/handlers/rag_gate.py`（`_count_md` 统计 .md 篇数/字符 + `_resolve_external_vaults` 读 config external_vaults + `_count_cases`/`record_missed_case` 漏召回案例留痕 `data/memory/vault/rag_missed_cases.md` + `rag_gate` 三态判定：未触发 / 规模达标待案例 / 触发（输出 embedding+faiss 评估清单）；确定性、失败静默降级）+ `skills/rag_gate.yaml`（type handler，触发词：向量评估/RAG 评估/库多大/漏召回/faiss）。测试：`tests/test_rag_gate.py` 11 例（注册/触发词/空库小库未触发/达标无案例待触发/有案例触发/外接库并入/案例追加计数/缺失目录降级/默认库不抛），全量 692 passed、2 skipped。
+- **N56 已完成**：P4 媒体生成（ADR-052，自研）落地。`skills/handlers/media_gen.py`（`_tone`（正弦+指数包络）/`_synth_music`（C 大调或 A 小调和弦琶音，prompt 情绪词确定性映射 bpm：欢快=150/悲伤=70/缺省=110）/`_write_wav`（标准库 wave 写 16-bit PCM 44100Hz）/`_out_dir`/`media_generate`（kind=music 真合成落 wav；video/image 后端占位提示待接 seedance/seedream；未知类型/异常静默降级））+ `skills/media_gen.yaml`（type handler，触发词：生成音乐/配乐/做首歌/生成视频/生成图片/bgm）。测试：`tests/test_media_gen.py` 10 例（skill 注册/触发词/音乐写合法 wav 读回/输出目录自动建/悲伤比欢快长/确定性/视频占位/图片占位/未知类型降级/默认目录不抛），全量 702 passed、2 skipped。
 
 ## 已知遗留
 
@@ -343,6 +345,6 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P3 | ✅ 文档口径修正：向量语义召回过度宣称 → 标注「预留未实现」（faiss/vector_store/rag_corpus） → **N48/ADR-043** | 自审 |
 | P3 | ✅ 向量 RAG 评估闸门：确定性量化记忆库规模 + 漏召回案例留痕 → **N55/ADR-050**（触发条件 = 合计 >1000 篇/100 万字符 **且** 有漏召回案例，才启动本地 embedding+faiss 评估；当前未触发，继续 FTS5；faiss 1.15 已装、缺 sentence-transformers/torch） | 自审（2026-08-24 RAG 可行性评估） |
 | P4 | 机器绑定加密 / 陌生人距离 / 自动锁屏 | Aivy |
-| P4 | 媒体生成（音乐/视频） | BaiLongma |
+| P4 | ✅ 媒体生成（音乐程序化合成 V1 → **N56/ADR-052**；视频/图片后端 seedance/seedream 待接入，接口已留） | BaiLongma |
 | P4 | ✅ 声纹防欺骗（anti_spoof + enroll_speaker，V1 规则版 → **N54/ADR-049**；重模型后端 pyannote/ecapa 留待扩展） | 自研（voice） |
 | P4 | Electron 桌面壳 + 安装包 + 激活码（面向最终用户） | 两家 |

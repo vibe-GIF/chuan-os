@@ -734,3 +734,17 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **理由**: dsh 处于 developer preview，官方明示未来有破坏性变更，现在深度集成（B/C）等于重写两遍；路径 A 低成本可逆但需先安装 dsh 才有效，故一并暂缓。对齐 chuan-os「编排层不重写框架」定位（ADR-007），融合只走配置层 + HTTP/MCP 对接，不把 dsh 源码拉进 chuan-os。
 
 **触发条件**: dsh 正式版（API 稳定）发布 → 评估路径 B（把幕僚长包装成 dsh 插件）；路径 A 可随时提前落地（只需 dsh 安装可用）。
+
+## ADR-052: 媒体生成（N56，音乐程序化合成 + 视频/图片后端占位）
+
+**决策**: 落地 ROADMAP P4 待办「媒体生成（音乐/视频）」V1——新增 `skills/handlers/media_gen.py` handler skill：
+- **music**（真实现，零新增依赖）：纯 numpy 程序化合成（正弦 + 指数衰减包络 + 和弦琶音，对齐 voice/sounds.py 合成惯例），标准库 `wave` 写 16-bit PCM wav；prompt 关键词确定性影响情绪/速度——欢快/明亮 → C 大调 + bpm150，悲伤/慢 → A 小调 + bpm70，缺省 bpm110；
+- **video / image**（后端占位）：项目侧已装 seedance/seedream 插件能力但运行时无直连 API → 返回可读提示（待接 API、配置密钥后可用），不抛错；
+- **静默降级**（对齐项目惯例）：未知类型 / 写入失败 / 异常 → 全部返回可读文本，绝不抛错；`output_dir` 缺省 `data/media`，自动建目录；
+- 注册为 handler skill（触发词：生成音乐/配乐/做首歌/生成视频/生成图片/bgm）。
+
+**理由**: 音乐是「零依赖即可出活」的媒体——程序化合成让 agent 真能生成可听配乐，无需任何模型/密钥；视频/图片留占位，等 seedance/seedream 的运行时 API 接入后填实现即可，接口不变。
+
+**反例**: V1 不做多轨/编曲/歌词（纯和弦琶音背景乐）；不做采样/音色库（纯正弦，电子风）；不做视频/图片实际生成（后端未接入，只留占位与提示）；不接模型生成音乐（后续可加 suno 等 API 后端，接口不变）。
+
+**落地记录（已完成，2026-08-24，N56）**: `skills/handlers/media_gen.py`（`_tone`/`_synth_music`/`_write_wav`/`_out_dir`/`media_generate`）+ `skills/media_gen.yaml`（type handler，触发词：生成音乐/配乐/做首歌/生成视频/生成图片/bgm）。测试：`tests/test_media_gen.py` 10 例（skill 注册/触发词/音乐写合法 wav 读回/输出目录自动建/悲伤比欢快长/确定性/视频占位/图片占位/未知类型降级/默认目录不抛）。验收：10 passed ✓；真实生成 wav（44100Hz 16-bit mono，C 大调琶音）可被 wave 读回、大小 >44B ✓。

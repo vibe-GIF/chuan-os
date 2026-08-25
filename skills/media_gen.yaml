@@ -1,0 +1,25 @@
+# 媒体生成（P4，V1：音乐程序化合成；视频/图片后端占位）
+name: media_gen
+description: 媒体生成：音乐（程序化合成写 wav，支持欢快/悲伤等情绪影响调式速度）；视频/图片（后端待接入）。生成音乐、配乐、背景音乐、做首歌、生成视频、生成图片时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["生成音乐", "生成音效", "做首歌", "写首歌", "配乐", "背景音乐", "生成视频", "生成图片", "做个视频", "生成媒体", "bgm"]
+
+# 调用的本地 handler（音乐 numpy 合成；视频/图片后端占位，失败静默降级）
+handler:
+  module: handlers.media_gen
+  function: media_generate
+
+# 参数映射
+params:
+  kind:
+    from: user_input
+    required: false
+  prompt:
+    from: user_input
+    required: false
+  output_dir:
+    from: user_input
+    required: false
