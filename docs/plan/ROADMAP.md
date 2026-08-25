@@ -51,6 +51,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N49 vault MCP server** | 外来 agent 经 MCP 检索/写入共享黑板：search_vault/write_vault/list_vaults 读写 data/teams/ 黑板（ADR-044） | 架构升级 | ✅ |
 | **N50 视觉理解** | 图片/截图视觉分析 handler skill：vision_analyze 本地图/URL → qwen-vl 视觉模型返回描述，key 复用百炼、静默降级（ADR-045） | 能力增强 | ✅ |
 | **N51 工具市场** | 能力目录 + 运行时按信号裁剪：catalog/enable/disable + select(task) 确定性裁剪工具子集，默认关闭对齐 ADR-009（ADR-046） | 架构升级 | ✅ |
+| **N52 视觉理解 V2** | 扩展 vision_analyze：视频/录屏 ffmpeg 抽首帧 + PDF/表格转图后走视觉分析，缺依赖静默降级（ADR-047） | 能力增强 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
 
@@ -154,6 +155,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 - **N47 已完成**：HTTP API / FastAPI Gateway（ADR-042，客户端/服务器解耦接入层）落地。`chuan/gateway/api.py`（`create_app` 工厂 + lifespan 生命周期（复用 supervisor 或自动 wake_up/shutdown）+ `GET /health` 复用 Heartbeat + `POST /api/chat` 走 dispatch（session_id 隔离 + 可选 history + 可选 worker 直派）+ 从简鉴权（`CHUAN_API_TOKEN` 或 config `api.token`，未设默认放行）+ 模块级 `app` 供 uvicorn/`python -m chuan.gateway.api` 启动）。测试：`tests/test_api.py`（8 例：health ok/未唤醒 degraded/chat 返回 reply+route/worker 直派/空消息 422/未唤醒 503/token 鉴权/默认放行）。实测 uvicorn 验收：`/health` → `{"status":"ok","awake":true,...13 workers}` ✓；`/api/chat {"message":"你好","session_id":"api_acceptance"}` → 幕僚长真实答复 ✓。全量 624 passed、2 skipped。
 - **N49 已完成**：P2 vault MCP server（ADR-044）落地。`mcp_servers/vault_server.py`（FastMCP 自包含 stdio server，不依赖 chuan 包，对齐 filesystem_server）：`list_vaults` 列黑板/团队 + `search_vault` 检索（role/task/subtasks/notes 关键词命中 + 片段）+ `write_vault` 追加写入（不存在则新建，兼容既有 team_state 文档）；团队名白名单清洗 + realpath 前缀校验（限定 data/teams + data/memory）双保险防路径穿越 + 原子落盘；`config/mcp_servers.yaml` 追加 `vault` 段（未动其他 server 段）。测试：`tests/test_vault_server.py` 13 例（list/write/search/路径安全/工具注册），全量 640 passed、2 skipped。
 - **N51 已完成**：P3 工具市场 / 动态能力发现（ADR-046，借鉴 BaiLongma）落地。`chuan/tool_market.py`（`ToolMarket`：`catalog()` 目录（来源 skill/mcp:*/extra + 上下架态）+ `enable()/disable()` 运行时上下架（`_collect()` 懒加载目录后校验未知工具返回 False）+ `enabled_tools()`（市场关闭 = 全量挂载对齐 ADR-009）+ `select(task, min_tools)` 确定性按信号裁剪——词元交集计分（**CJK 逐字拆分**让中文子串可命中、英文/数字整词）、不足 min_tools 回退全量防饿死、always 名单强制保留；`_tokenize`/`load_tool_market_cfg` 读 config.yaml `tool_market` 段）+ `config/config.yaml`（`tool_market` 段，`enabled: false` 默认关闭）+ `chuan/agent_pool.py`（`AgentPool.__init__(..., tool_filter)` + `spawn_builtin` 市场开启时对默认工具集过滤，失败回退全量不阻断 spawn）+ `chuan/runtime_supervisor.py`（构建 `tool_market`，开启时挂 `tool_filter`，暴露 `tool_market_status`/`tool_market_select`）+ `chuan/gateway/heartbeat.py`（健康报告 `market` 段）+ `chuan/main.py`（`/tools` 命令：查看目录 / enable / disable / select <任务> 预览裁剪 / refresh）。测试：`tests/test_tool_market.py` 9 例（目录来源/关闭态全量/上下架/未知工具/按描述计分裁剪/不足回退全量/下架+always/统计形状/config 默认关闭/中文逐字词元），全量 657 passed、2 skipped。
+- **N52 已完成**：P3 视觉理解 V2（ADR-047，N50 扩展）落地。`skills/handlers/vision_analyze.py`（新增 `_ffmpeg_bin`/`_frame_to_data_uri`（视频/录屏 ffmpeg 抽首帧，对齐 voice/tts.py ffmpeg 惯例）+ `_pdf_to_data_uri`（pdf2image 转首页，缺依赖可读提示）+ `_table_to_data_uri`（CSV/TSV 用 Pillow 渲染表格图，缺依赖可读提示）+ `vision_analyze` 按扩展名分派 `_IMAGE_EXTS/_VIDEO_EXTS/_PDF_EXTS/_TABLE_EXTS`；空输入/文件不存在/缺 key/转换失败/模型失败全部静默降级，保持原文案契约）+ `skills/vision_analyze.yaml`（描述与触发词扩展到看 PDF/读表格/看视频/录屏/抽帧）。测试：`tests/test_vision_v2.py` 9 例（视频真 ffmpeg 抽帧/缺 ffmpeg 降级/坏视频降级/PDF 缺依赖降级/CSV 渲染或降级/空表格降级/图片回归/URL 回归/未知扩展名按图），`tests/test_vision_analyze.py` 8 例回归不破，全量待 W3 后核实。
 
 ## 已知遗留
 
@@ -329,7 +331,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P2 | ✅ 岗位化 1:N 过渡：多 agent 池+会话隔离 → **N37/ADR-032**；1:N 默认启用并行独立 worker → **N38/ADR-033**；按实例配置工具/模型/记忆 → **N39/ADR-034**；config.yaml 按复杂度选实例 → **N40/ADR-035**；动态实例池自动扩缩容 → **N41/ADR-036**；岗位间协作·多岗位并行编排+共享黑板 → **N42/ADR-037**；记忆语义检索·sqlite-vec 双路合并 → **N43/ADR-038**；Redis TTL 缓存旁路·cache-aside 加速 → **N44/ADR-039**；任务队列+事件总线·Streams 可靠队列+Pub/Sub 总线 → **N45/ADR-040** | ADR-014 |
 | P2 | ✅ vault MCP server：外来 agent 经 MCP 检索/写入共享黑板 → **N49/ADR-044**（search_vault/write_vault/list_vaults 读写 data/teams/ 黑板） | obsidian-second-brain |
 | P2 | ✅ search_vault 检索工具：临时查外置 Obsidian 库，不混入记忆管道 → **N36/ADR-031** | 定位讨论 |
-| P3 | ✅ 视觉理解（图片/截图分析 V1 → **N50/ADR-045**；录屏/PDF/表格转图留待扩展） | Aivy |
+| P3 | ✅ 视觉理解（图片/截图分析 V1 → **N50/ADR-045**；录屏/PDF/表格转图 V2 → **N52/ADR-047**） | Aivy |
 | P3 | ✅ 工具市场 / 动态能力发现（运行时按信号裁剪工具集 → **N51/ADR-046**；默认关闭对齐 ADR-009，/tools 运行时上架下架 + select 确定性裁剪） | BaiLongma |
 | P3 | 本地资源感知（系统/桌面/SSH/Git 采集器） → 完成（**N46/ADR-041**，2026-08-24）；天气采集已由既有 weather_check skill 覆盖 | BaiLongma |
 | P3 | ✅ HTTP API / FastAPI Gateway（客户端/服务器解耦，接入层扩展） → **N47/ADR-042** | 自研（ADR-011） |
