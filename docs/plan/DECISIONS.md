@@ -591,3 +591,21 @@ blackboard/
 **反例**: 不引入 psutil/GPUtil 等新依赖（标准库足够且跨平台）；不做 SSH/IP 主动连通检测（会发起网络请求，超出「本地资源感知」只读边界，仅列配置与现网连接）；不做桌面截屏/录屏（该能力属 P4 视觉理解、依赖具体模型，另行规划）。
 
 **落地记录（已完成，2026-08-24，N46）**: `skills/handlers/system_status.py` + `skills/system_status.yaml` ＋ `skills/handlers/desktop_status.py` + `skills/desktop_status.yaml` ＋ `skills/handlers/ssh_status.py` + `skills/ssh_status.yaml` ＋ `skills/handlers/git_status.py` + `skills/git_status.yaml`，均为 `type: handler`（模块 `handlers.<name>`）。未改 `config.yaml`。实测（.venv）：`system_status()` 返回 Windows 11/16 核/内存 73%/C+D 双盘占用 ✓；`desktop_status()` 返回 1536x864 + 前台窗口标题 ✓；`ssh_status()` 返回 known_hosts 主机 8.138.91.61 ✓；`git_status()` 对真实仓库返回分支/最近提交 ✓、对项目根（非 git 仓库）如实报 `[ERROR] 不是 git 仓库` ✓。触发词匹配验证：`看下磁盘→system_status`、`SSH状态→ssh_status`、`看一下git状态→git_status` 均命中 ✓。文件由 `[IO.File]::WriteAllText`（UTF8-no-BOM、LF）写入（IDE Write/Edit 服务异常退避）。
+
+## ADR-042: HTTP API / FastAPI Gateway（N47，客户端/服务器解耦接入层）
+
+**决策**: 新增 `chuan/gateway/api.py`（FastAPI），把 RuntimeSupervisor 暴露为 HTTP 服务，让脚本 / 网页 / PWA 等客户端通过 HTTP 与 chuan-os 对话，与 CLI / TUI / 语音解耦。落地 ROADMAP P3 待办「HTTP API / FastAPI Gateway（客户端/服务器解耦，ADR-011 接入层）」。核心设计：
+- **生命周期**：`create_app()` 工厂 + FastAPI lifespan——复用传入的 `supervisor`（测试用，不管理其生命周期）或默认用 `RuntimeSupervisor(config_path=...)` 创建并 `wake_up()`，关闭时 `shutdown()`。模块级 `app = create_app()` 供 `uvicorn chuan.gateway.api:app` 直接启动；
+- **路由**：`GET /health` 复用 `Heartbeat.check()` 汇总健康状态（返回 `status: ok|degraded` + `awake` + `report`）；`POST /api/chat` 走 `RuntimeSupervisor.dispatch()`（支持 `session_id` 会话隔离 + 可选 `history` + 可选 `worker` 直接派发指定岗位，跳过自动路由），返回 `{reply, route, route_method, session_id}`；
+- **鉴权从简（本地/局域网）**：读 `CHUAN_API_TOKEN` 环境变量（或 `config.yaml` 的 `api.token`）作访问令牌，要求请求头 `X-API-Key`（或 `Authorization: Bearer`）匹配；未配置 token → 不鉴权默认放行；
+- **线程模型**：`/api/chat` 用同步 `def` 端点跑在 FastAPI 线程池，内部 `dispatch()` 经 `run_coroutine_threadsafe` 调度到幕僚长常驻事件循环，与 CLI/scheduler 复用同一套并发路径，天然线程安全；显式串 500 错误为可读 `detail`，不崩请求。
+
+**理由**: P3 接入层扩展需要一条不依赖终端/语音的编程式通道。FastAPI + uvicorn 已有依赖（`.venv` 装好），零新增；复用 Gateway 的 Heartbeat 与 RuntimeSupervisor 的 dispatch 接口，不侵入 core（不动 orchestrator / runtime_supervisor）。鉴权保持「本地/局域网可跑、可配 token 收紧」。
+
+**反例**: 不做复杂鉴权（OAuth/JWT/HTTPS 证书），本地/局域网从简，必要时交给反向代理；不做流式 SSE/WebSocket（当前 `dispatch` 整条同步返回，流式留待未来在 `dispatch_async` 上扩展）；不在 `/api/chat` 里做多轮状态机（会话延续靠 `session_id` + SqliteSaver 持久化）。
+
+**落地记录（已完成，2026-08-24，N47）**: 新增 `chuan/gateway/api.py`（`ChatRequest`/`ChatResponse`/`_load_token`/`_require_auth_factory`/`_last_message`/`create_app`/`app`/`main`）+ 测试 `tests/test_api.py`（8 例：health ok / 未唤醒 degraded / chat 返回 reply+route / worker 直派 / 空消息 422 / 未唤醒 503 / 设置 token 后 X-API-Key 与 Bearer 鉴权强校验 / 未设 token 默认放行）。全量 624 passed、2 skipped（另有 3 例 `test_http_gateway.py`/`test_hud.py` 的 aiohttp 用例因 TRAE 沙箱限制写 `aiohttp/__pycache__/test_utils...pyc` 失败，与本改动无关，属环境问题）。实测验收（uvicorn，127.0.0.1:8011）：
+- `curl /health` → `{"status":"ok","awake":true,"report":{... 13 workers, mcp_connected 3 ...}}` ✓；
+- `POST /api/chat {"message":"你好","session_id":"api_acceptance"}` → 返回幕僚长真实答复 + `route: chief_of_staff` ✓。
+
+**踩坑**：默认 `session_id` 会话在重启后经 SqliteSaver 恢复的历史里偶有「`AIMessage` 的 tool_call 缺对应 `ToolMessage`」的旧存档 → `/api/chat` 返回 500；属既有存档历史不完整问题（非网关 bug），换新 `session_id` 即恢复——未来可考虑在会话初始化时清洗不完整 tool_call 历史。**IDE 异常**：Write/Edit 工具在本机对含较复杂 AST 的文件报 `IOutlineService` 异常，改用「最小占位 Write + Edit 覆盖、文档用小块递增追加」规避。
