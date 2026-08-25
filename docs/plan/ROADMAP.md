@@ -53,6 +53,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N51 工具市场** | 能力目录 + 运行时按信号裁剪：catalog/enable/disable + select(task) 确定性裁剪工具子集，默认关闭对齐 ADR-009（ADR-046） | 架构升级 | ✅ |
 | **N52 视觉理解 V2** | 扩展 vision_analyze：视频/录屏 ffmpeg 抽首帧 + PDF/表格转图后走视觉分析，缺依赖静默降级（ADR-047） | 能力增强 | ✅ |
 | **N54 声纹防欺骗** | 声纹注册 enroll_speaker + 反欺骗 anti_spoof（V1 规则版：静音/时长/能量 + 已注册声纹比对，float32/int16 缩放兼容，静默降级，ADR-049） | 安全 | ✅ |
+| **N55 向量 RAG 评估闸门** | 确定性量化记忆库规模（内部+外接 .md 篇数/字符）对比阈值 + 漏召回案例留痕，三态判定是否启动本地 embedding+faiss 评估（ADR-050） | 记忆升级 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
 
@@ -158,6 +159,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 - **N51 已完成**：P3 工具市场 / 动态能力发现（ADR-046，借鉴 BaiLongma）落地。`chuan/tool_market.py`（`ToolMarket`：`catalog()` 目录（来源 skill/mcp:*/extra + 上下架态）+ `enable()/disable()` 运行时上下架（`_collect()` 懒加载目录后校验未知工具返回 False）+ `enabled_tools()`（市场关闭 = 全量挂载对齐 ADR-009）+ `select(task, min_tools)` 确定性按信号裁剪——词元交集计分（**CJK 逐字拆分**让中文子串可命中、英文/数字整词）、不足 min_tools 回退全量防饿死、always 名单强制保留；`_tokenize`/`load_tool_market_cfg` 读 config.yaml `tool_market` 段）+ `config/config.yaml`（`tool_market` 段，`enabled: false` 默认关闭）+ `chuan/agent_pool.py`（`AgentPool.__init__(..., tool_filter)` + `spawn_builtin` 市场开启时对默认工具集过滤，失败回退全量不阻断 spawn）+ `chuan/runtime_supervisor.py`（构建 `tool_market`，开启时挂 `tool_filter`，暴露 `tool_market_status`/`tool_market_select`）+ `chuan/gateway/heartbeat.py`（健康报告 `market` 段）+ `chuan/main.py`（`/tools` 命令：查看目录 / enable / disable / select <任务> 预览裁剪 / refresh）。测试：`tests/test_tool_market.py` 9 例（目录来源/关闭态全量/上下架/未知工具/按描述计分裁剪/不足回退全量/下架+always/统计形状/config 默认关闭/中文逐字词元），全量 657 passed、2 skipped。
 - **N52 已完成**：P3 视觉理解 V2（ADR-047，N50 扩展）落地。`skills/handlers/vision_analyze.py`（新增 `_ffmpeg_bin`/`_video_first_frame`（视频/录屏 ffmpeg 抽首帧，对齐 voice/tts.py ffmpeg 惯例）+ `_pdf_to_img`（pdf2image 转首页，缺依赖可读提示）+ `_table_to_img`（csv 用 Pillow 渲染表格图（xlsx 留提示），缺依赖可读提示）+ `vision_analyze` 经 `_resource_to_data_uri` 按 `_PDF_SUFFIXES/_TABLE_SUFFIXES/_VIDEO_SUFFIXES` 分派；空输入/文件不存在/缺 key/转换失败/模型失败全部静默降级，保持原文案契约）+ `skills/vision_analyze.yaml`（描述与触发词扩展到看 PDF/读表格/看视频/录屏/抽帧）。测试：`tests/test_vision_v2.py` 11 例（触发词扩展/无输入/图片仍走原 data URI/csv 渲染出图/csv 走模型/xlsx 留提示/csv 缺 Pillow 降级/PDF 缺依赖降级/视频抽帧 mock 走模型/缺 ffmpeg 降级/抽帧失败降级），`tests/test_vision_analyze.py` 8 例回归不破，全量 680 passed、2 skipped。
 - **N54 已完成**：P4 声纹防欺骗（ADR-049，自研 voice）落地。`chuan/voice/spoof.py`（`extract_features`（numpy 规则：RMS 能量轮廓 PROFILE_POINTS=32 向量 + rms/zcr/静音占比/时长）+ `enroll_speaker`（原子落盘 data/speakers/<name>.json，防路径穿越 `_safe_name`，过短/全静音拒入）+ `load_speaker`/`list_speakers`/`remove_speaker`（磁盘真相）+ `anti_spoof`（两级：① 回放/环境噪声规则——静音占比过高/过短/能量过低判 spoof；② 已注册声纹 `_compare_voiceprint` 能量轮廓相关+标量贴近加权打分，低于阈值判伪造；未注册旁路通过）；float32(-1..1) 域计算，int16 输入自动 ×1/32768（对齐 wake_word.py 教训）；全程静默降级返回 dict 不抛错）。测试：`tests/test_voice_spoof.py` 13 例（enroll 写盘读回/拒静音过短/路径穿越/特征形状/静音判 spoof/过短判 spoof/未注册旁路/匹配通过/异声纹判伪造/未知名旁路/list+remove/int16-float32 缩放/garbage 不抛），`tests/test_voice.py` 46 例回归不破，全量 680 passed、2 skipped。
+- **N55 已完成**：P3 向量 RAG 评估闸门（ADR-050，2026-08-24 RAG 可行性评估落地）完成。`skills/handlers/rag_gate.py`（`_count_md` 统计 .md 篇数/字符 + `_resolve_external_vaults` 读 config external_vaults + `_count_cases`/`record_missed_case` 漏召回案例留痕 `data/memory/vault/rag_missed_cases.md` + `rag_gate` 三态判定：未触发 / 规模达标待案例 / 触发（输出 embedding+faiss 评估清单）；确定性、失败静默降级）+ `skills/rag_gate.yaml`（type handler，触发词：向量评估/RAG 评估/库多大/漏召回/faiss）。测试：`tests/test_rag_gate.py` 11 例（注册/触发词/空库小库未触发/达标无案例待触发/有案例触发/外接库并入/案例追加计数/缺失目录降级/默认库不抛），全量 692 passed、2 skipped。
 
 ## 已知遗留
 
@@ -338,7 +340,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P3 | 本地资源感知（系统/桌面/SSH/Git 采集器） → 完成（**N46/ADR-041**，2026-08-24）；天气采集已由既有 weather_check skill 覆盖 | BaiLongma |
 | P3 | ✅ HTTP API / FastAPI Gateway（客户端/服务器解耦，接入层扩展） → **N47/ADR-042** | 自研（ADR-011） |
 | P3 | ✅ 文档口径修正：向量语义召回过度宣称 → 标注「预留未实现」（faiss/vector_store/rag_corpus） → **N48/ADR-043** | 自审 |
-| P3 | 向量 RAG 评估闸门：**触发条件** = 内部+外接库合计 >1000 篇 / 100 万字符 **且** 出现「关键词漏召回」具体案例，才评估本地 embedding+faiss（faiss 1.15 已装、缺 sentence-transformers/torch）；外接 Obsidian 库接入 FTS5 先手已落地（**N25/ADR-020**），wiki 归位留待 | 自审（2026-08-24 RAG 可行性评估） |
+| P3 | ✅ 向量 RAG 评估闸门：确定性量化记忆库规模 + 漏召回案例留痕 → **N55/ADR-050**（触发条件 = 合计 >1000 篇/100 万字符 **且** 有漏召回案例，才启动本地 embedding+faiss 评估；当前未触发，继续 FTS5；faiss 1.15 已装、缺 sentence-transformers/torch） | 自审（2026-08-24 RAG 可行性评估） |
 | P4 | 机器绑定加密 / 陌生人距离 / 自动锁屏 | Aivy |
 | P4 | 媒体生成（音乐/视频） | BaiLongma |
 | P4 | ✅ 声纹防欺骗（anti_spoof + enroll_speaker，V1 规则版 → **N54/ADR-049**；重模型后端 pyannote/ecapa 留待扩展） | 自研（voice） |

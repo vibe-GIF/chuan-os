@@ -708,3 +708,18 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: V1 不引 pyannote/ecapa 等重模型（后续可换后端，接口不变）；不做远端云端声纹（全部本地）；不做连续说话人跟踪（只做单段验证）；`data/speakers/` 不加密（V2 可做）。
 
 **落地记录（已完成，2026-08-24，N54）**: `chuan/voice/spoof.py`（`extract_features`/`enroll_speaker`/`load_speaker`/`list_speakers`/`remove_speaker`/`anti_spoof`/`_compare_voiceprint`/`_safe_name`/`_to_float32`）。测试：`tests/test_voice_spoof.py` 13 例（enroll 写盘读回/拒静音过短/路径穿越/特征形状/静音判 spoof/过短判 spoof/未注册旁路/匹配通过/异声纹判伪造/未知名旁路/list+remove/int16-float32 缩放/garbage 不抛）+ `tests/test_voice.py` 46 例回归。验收：两文件 59 passed ✓。
+
+## ADR-050: 向量 RAG 评估闸门（N55，确定性判定是否启动本地 embedding+faiss）
+
+**决策**: 落地 ROADMAP P3 待办「向量 RAG 评估闸门」——新增 `skills/handlers/rag_gate.py` handler skill，**确定性量化记忆库规模**并判定是否触发本地 embedding+faiss 评估：
+- **统计**：`_count_md` 遍历内部 `notes/` 与外接库（`_resolve_external_vaults` 读 config `memory.external_vaults`，对齐 memory.py 解析）的 `.md` 篇数与字符数；
+- **阈值**（模块常量 `_DOC_THRESHOLD=1000` / `_CHAR_THRESHOLD=1_000_000`，可测）：合计 **>1000 篇 / 100 万字符** 视为规模达标；
+- **漏召回案例**：`record_missed_case(query, note)` 追加写 `data/memory/vault/rag_missed_cases.md`（磁盘真相）；`_count_cases` 计数；
+- **三态判定**：规模未达标 →「未触发，继续 FTS5」；规模达标但无案例 →「待案例，暂不启动」；规模达标且有案例 →「**触发**」，输出下一步评估清单（装 sentence-transformers/torch → 选嵌入模型 → 建向量索引双路合并 → 用案例验证召回率）；
+- **确定性 + 静默降级**（对齐项目惯例）：不依赖 LLM；统计项失败降级为 0，绝不抛错；注册为 handler skill（触发词：向量评估/RAG 评估/库多大/漏召回/faiss）。
+
+**理由**: RAG 评估不该凭感觉，先量化再决策——用确定性闸门拦住「库还小就急着上向量」的过度投入，同时把「漏召回案例」留痕，让触发判断有据可依（2026-08-24 RAG 可行性评估的落地）。
+
+**反例**: 不做本地 embedding 本身（那是触发后才评估的后续节点）；不做 faiss 建库/检索（非本节点范围）；不自动记录漏召回（需人工/业务侧明确调用 `record_missed_case` 或未来接入）；阈值不动态自调（保持显式常量便于审查）。
+
+**落地记录（已完成，2026-08-24，N55）**: `skills/handlers/rag_gate.py`（`_count_md`/`_resolve_external_vaults`/`_cases_path`/`_count_cases`/`record_missed_case`/`rag_gate`）+ `skills/rag_gate.yaml`（type handler，触发词：向量评估/RAG 评估/上向量/库多大/漏召回/faiss）。测试：`tests/test_rag_gate.py` 11 例（skill 注册/触发词/空库未触发/小库未触发/规模达标无案例待触发/有案例触发/外接库并入合计/漏召回案例追加计数/缺失目录降级/默认库不抛）。验收：11 passed ✓；真实默认库跑通返回可读报告（当前规模未达阈值 → 未触发，继续 FTS5）。

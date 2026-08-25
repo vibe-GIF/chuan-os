@@ -1,0 +1,19 @@
+# 向量 RAG 评估闸门（P3，确定性采集器）
+name: rag_gate
+description: 向量 RAG 评估闸门：量化记忆库规模（内部 notes + 外接库的 .md 篇数/字符数），对比触发阈值（1000 篇 / 100 万字符 + 漏召回案例），判定是否该启动本地 embedding+faiss 评估。问记忆库多大、是否该上向量、RAG 评估、漏召回时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["向量评估", "rag 评估", "上向量", "本地向量", "记忆库多大", "库多大", "多少篇", "漏召回", "faiss", "embedding 评估"]
+
+# 调用的本地 handler（确定性统计 + 判定，不依赖 LLM）
+handler:
+  module: handlers.rag_gate
+  function: rag_gate
+
+# 参数映射
+params:
+  vault_path:
+    from: user_input
+    required: false
