@@ -122,6 +122,25 @@ memory:
     dim: 1024
     weight: 2.0
 
+# === N48 局域网 HTTPS + 手机 PWA 接入（ADR-043）===
+# 在现有 HUD（TCP → Flutter 悬浮层）之上加一个 Web 旁路：
+#   - HTTP/HTTPS 静态服务 web/ 的 PWA（manifest + Service Worker），手机同局域网可安装访问；
+#   - /ws 提供与 N34 相同的 SCENE 协议帧（hello/scene/patch）——同一协议 TCP/WebSocket 只换
+#     传输层，手机复用 Flutter 悬浮层的那套 scene 状态（agent/effect/user/ai/monitor）；
+#   - POST /api/message 把手机输入路由进 RuntimeSupervisor，回复回传并同时推 HUD 帧；
+#   - POST /api/hud 显式下发一条 HUD 命令（wake/agent/effect/user/ai/monitor…）。
+# 自签证书用 scripts/gen_https_cert.py 生成（data/https_cert.pem + data/https_key.pem）。
+# 旁路设计：证书缺失/加载失败 → 退回纯 HTTP 打警告不阻断；未绑定 supervisor/hud → API 明确报错
+# 但静态页仍可访问；WebSocket 断开即弃、绝不阻塞主流程。
+http:
+  enabled: true
+  host: "0.0.0.0"          # LAN 可达（手机同网段访问）
+  port: 8443
+  tls: true                # 证书就绪走 HTTPS；缺失自动退回 HTTP（静默降级）
+  cert_path: "data/https_cert.pem"
+  key_path: "data/https_key.pem"
+  web_root: "web/"         # PWA 静态根（相对项目根）
+
 # === N44 Redis TTL 缓存旁路（cache-aside 加速）===
 # 给外部 API 调用（天气/搜索）加 TTL 缓存：命中免外呼、避开外部不稳定。
 # enabled: false 默认关闭——零依赖零成本（no-op），测试封闭；
