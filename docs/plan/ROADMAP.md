@@ -50,6 +50,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N48 局域网 HTTPS + 手机 PWA 接入** | HTTP/HTTPS 网关 + PWA（manifest/SW）+ SCENE WebSocket：手机同局域网 HTTPS 访问并下发/接收 HUD 命令 + 顺手修正文档口径（ADR-043） | 架构升级 | ✅ |
 | **N49 vault MCP server** | 外来 agent 经 MCP 检索/写入共享黑板：search_vault/write_vault/list_vaults 读写 data/teams/ 黑板（ADR-044） | 架构升级 | ✅ |
 | **N50 视觉理解** | 图片/截图视觉分析 handler skill：vision_analyze 本地图/URL → qwen-vl 视觉模型返回描述，key 复用百炼、静默降级（ADR-045） | 能力增强 | ✅ |
+| **N51 工具市场** | 能力目录 + 运行时按信号裁剪：catalog/enable/disable + select(task) 确定性裁剪工具子集，默认关闭对齐 ADR-009（ADR-046） | 架构升级 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
 
@@ -152,6 +153,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 - **N40 已完成**：P2 按任务复杂度选实例·声明式（ADR-035，config.yaml role_instances）落地。`chuan/role_config.py`（`RoleInstanceConfig{tiers,roles,instances}` + `load_role_instances(config_path, brains)` 解析器——`brain` 名用 brains registry 解析为模型（取不到保持 model=None）+ `tier_for(role)` 角色覆盖优先合并，缺段/缺文件/解析失败 → 全默认旁路）+ `chuan/role.py`（`PersonaRole(..., instance_config)` + `_classify_complexity`（纯规则：heavy=命中重型标记/medium=会规划/simple=其余）+ `_resolve_tier_instance` + `_ensure_configured_instance`（声明式实例经 spawn_builtin_instance 创建/复用，缺失/失败回退默认）+ dispatch 单 agent 路径按复杂度选实例）+ `chuan/gateway/agent_spawner.py`（从 sup.config_path+sup.brains 加载并注入所有岗位与幕僚长）+ `config/config.yaml`（`role_instances` 段，opt-in 示例：tiers/instances/roles）。测试：`tests/test_role_config.py` 新增 12 例（缺段/缺文件默认/解析 tiers+instances+roles/brain 解析/角色覆盖/未知 brain 回退/复杂度分级/选声明式实例/无配置回退/缺失实例回退/dispatch 重型用声明实例/simple 用默认/同 id 复用），全量 540 passed、2 skipped。
 - **N47 已完成**：HTTP API / FastAPI Gateway（ADR-042，客户端/服务器解耦接入层）落地。`chuan/gateway/api.py`（`create_app` 工厂 + lifespan 生命周期（复用 supervisor 或自动 wake_up/shutdown）+ `GET /health` 复用 Heartbeat + `POST /api/chat` 走 dispatch（session_id 隔离 + 可选 history + 可选 worker 直派）+ 从简鉴权（`CHUAN_API_TOKEN` 或 config `api.token`，未设默认放行）+ 模块级 `app` 供 uvicorn/`python -m chuan.gateway.api` 启动）。测试：`tests/test_api.py`（8 例：health ok/未唤醒 degraded/chat 返回 reply+route/worker 直派/空消息 422/未唤醒 503/token 鉴权/默认放行）。实测 uvicorn 验收：`/health` → `{"status":"ok","awake":true,...13 workers}` ✓；`/api/chat {"message":"你好","session_id":"api_acceptance"}` → 幕僚长真实答复 ✓。全量 624 passed、2 skipped。
 - **N49 已完成**：P2 vault MCP server（ADR-044）落地。`mcp_servers/vault_server.py`（FastMCP 自包含 stdio server，不依赖 chuan 包，对齐 filesystem_server）：`list_vaults` 列黑板/团队 + `search_vault` 检索（role/task/subtasks/notes 关键词命中 + 片段）+ `write_vault` 追加写入（不存在则新建，兼容既有 team_state 文档）；团队名白名单清洗 + realpath 前缀校验（限定 data/teams + data/memory）双保险防路径穿越 + 原子落盘；`config/mcp_servers.yaml` 追加 `vault` 段（未动其他 server 段）。测试：`tests/test_vault_server.py` 13 例（list/write/search/路径安全/工具注册），全量 640 passed、2 skipped。
+- **N51 已完成**：P3 工具市场 / 动态能力发现（ADR-046，借鉴 BaiLongma）落地。`chuan/tool_market.py`（`ToolMarket`：`catalog()` 目录（来源 skill/mcp:*/extra + 上下架态）+ `enable()/disable()` 运行时上下架（`_collect()` 懒加载目录后校验未知工具返回 False）+ `enabled_tools()`（市场关闭 = 全量挂载对齐 ADR-009）+ `select(task, min_tools)` 确定性按信号裁剪——词元交集计分（**CJK 逐字拆分**让中文子串可命中、英文/数字整词）、不足 min_tools 回退全量防饿死、always 名单强制保留；`_tokenize`/`load_tool_market_cfg` 读 config.yaml `tool_market` 段）+ `config/config.yaml`（`tool_market` 段，`enabled: false` 默认关闭）+ `chuan/agent_pool.py`（`AgentPool.__init__(..., tool_filter)` + `spawn_builtin` 市场开启时对默认工具集过滤，失败回退全量不阻断 spawn）+ `chuan/runtime_supervisor.py`（构建 `tool_market`，开启时挂 `tool_filter`，暴露 `tool_market_status`/`tool_market_select`）+ `chuan/gateway/heartbeat.py`（健康报告 `market` 段）+ `chuan/main.py`（`/tools` 命令：查看目录 / enable / disable / select <任务> 预览裁剪 / refresh）。测试：`tests/test_tool_market.py` 9 例（目录来源/关闭态全量/上下架/未知工具/按描述计分裁剪/不足回退全量/下架+always/统计形状/config 默认关闭/中文逐字词元），全量 657 passed、2 skipped。
 
 ## 已知遗留
 
@@ -328,7 +330,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P2 | ✅ vault MCP server：外来 agent 经 MCP 检索/写入共享黑板 → **N49/ADR-044**（search_vault/write_vault/list_vaults 读写 data/teams/ 黑板） | obsidian-second-brain |
 | P2 | ✅ search_vault 检索工具：临时查外置 Obsidian 库，不混入记忆管道 → **N36/ADR-031** | 定位讨论 |
 | P3 | ✅ 视觉理解（图片/截图分析 V1 → **N50/ADR-045**；录屏/PDF/表格转图留待扩展） | Aivy |
-| P3 | 工具市场 / 动态能力发现（运行时按信号裁剪工具集） | BaiLongma |
+| P3 | ✅ 工具市场 / 动态能力发现（运行时按信号裁剪工具集 → **N51/ADR-046**；默认关闭对齐 ADR-009，/tools 运行时上架下架 + select 确定性裁剪） | BaiLongma |
 | P3 | 本地资源感知（系统/桌面/SSH/Git 采集器） → 完成（**N46/ADR-041**，2026-08-24）；天气采集已由既有 weather_check skill 覆盖 | BaiLongma |
 | P3 | ✅ HTTP API / FastAPI Gateway（客户端/服务器解耦，接入层扩展） → **N47/ADR-042** | 自研（ADR-011） |
 | P3 | ✅ 文档口径修正：向量语义召回过度宣称 → 标注「预留未实现」（faiss/vector_store/rag_corpus） → **N48/ADR-043** | 自审 |

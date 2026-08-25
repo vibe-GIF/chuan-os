@@ -90,7 +90,8 @@ def run_cli(
                     "/resume 断点续跑；"
                     "/monitor 监督者面板；/howto 知识原子待确认队列；"
                     "/skill 技能待确认队列；"
-                    "/routine 例行任务（add/remove/list）；exit 退出。"
+                    "/routine 例行任务（add/remove/list）；"
+                    "/tools 工具市场（enable/disable/select）；exit 退出。"
                 )
                 continue
             if message == "/voice":
@@ -370,6 +371,57 @@ def run_cli(
                     continue
                 name = message[len("/routine remove "):].strip()
                 output_fn(rr(name) if name else "用法：/routine remove <name>")
+                continue
+            if message == "/tools":
+                market = getattr(supervisor, "tool_market_status", None)
+                if market is None:
+                    output_fn("当前幕僚长不支持工具市场。")
+                    continue
+                st = market()
+                if not st.get("enabled"):
+                    output_fn(
+                        f"工具市场未开启（config.yaml 的 tool_market.enabled: false）。"
+                        f"开启后：/tools 查看目录，/tools enable|disable <name> 上下架，"
+                        f"/tools select <任务> 预览按信号裁剪。当前全量挂载 {st.get('total', 0)} 个工具（ADR-009）。"
+                    )
+                    continue
+                cat = st.get("catalog", [])
+                disabled = set(st.get("disabled", []))
+                output_fn(
+                    f"工具市场 · 目录 {st.get('total', 0)} 个 · 上架 {st.get('active', 0)}"
+                    f" · 下架 {len(disabled)} · min_tools {st.get('min_tools', 0)}"
+                )
+                for c in cat:
+                    mark = "✕" if c["name"] in disabled else "✓"
+                    output_fn(f"  {mark} {c['name']} [{c['source']}] {c['description'][:40]}")
+                output_fn("用法：/tools enable|disable <name> /tools select <任务>")
+                continue
+            if message.startswith("/tools "):
+                parts = message[len("/tools "):].split(None, 1)
+                action, arg = parts[0], (parts[1].strip() if len(parts) > 1 else "")
+                if action in {"enable", "disable"} and arg:
+                    toggle = getattr(supervisor.tool_market, action, None)
+                    ok = toggle(arg) if toggle is not None else False
+                    output_fn(
+                        f"已{'上架' if action == 'enable' else '下架'}「{arg}」"
+                        if ok else f"未找到工具「{arg}」"
+                    )
+                    continue
+                if action == "select":
+                    sel = getattr(supervisor, "tool_market_select", None)
+                    names = sel(arg, min_tools=6) if sel is not None and arg else []
+                    if not arg:
+                        output_fn("用法：/tools select <任务文本>")
+                    else:
+                        output_fn(f"按信号裁剪（{len(names)} 个）：" + "、".join(names))
+                    continue
+                if action == "refresh":
+                    refresh = getattr(supervisor.tool_market, "refresh", None)
+                    if refresh is not None:
+                        refresh()
+                        output_fn("已重建工具市场目录（MCP 增删后生效）。")
+                    continue
+                output_fn("用法：/tools enable|disable <name> /tools select <任务> /tools refresh")
                 continue
 
             try:

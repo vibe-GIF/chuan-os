@@ -28,6 +28,7 @@ class AgentPool:
         brain_registry: Any = None,
         guard: Any = None,
         memory: Any = None,
+        tool_filter: Any = None,
     ) -> None:
         """初始化 agent 池。
 
@@ -36,11 +37,14 @@ class AgentPool:
             brain_registry: BrainRegistry（阶段1暂不直接使用，预留阶段2 spawn）
             guard: Guard（阶段1暂不直接使用，预留阶段2）
             memory: Memory（阶段1暂不直接使用，预留阶段2）
+            tool_filter: N51 工具市场旁路——对默认工具集做过滤的可调用对象（入 list 出 list）；
+                不传则保持 ADR-009 全量挂载行为。
         """
         self._persona_loader = persona_loader
         self._brain_registry = brain_registry
         self._guard = guard
         self._memory = memory
+        self.tool_filter = tool_filter
         self._resident: dict[str, AgentInstance] = {}
         self._temp: list[AgentInstance] = []
 
@@ -178,6 +182,12 @@ class AgentPool:
         if tools is None:
             registry = getattr(self._persona_loader, "tools", None)
             tools = registry.get_tools() if registry is not None else []
+            # N51 工具市场：默认工具集经市场过滤（开启时只注入上架工具；失败回退全量）
+            if self.tool_filter is not None:
+                try:
+                    tools = self.tool_filter(tools) or []
+                except Exception:  # noqa: BLE001 - 过滤失败不阻断 spawn
+                    pass
         graph = create_react_agent(
             model, tools, prompt=system_prompt, name=name, checkpointer=checkpointer
         )

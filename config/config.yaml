@@ -88,6 +88,15 @@ role_instances:
     max_instances: 3
     idle_ttl: 300
 
+# === N51 工具市场（tool_market，P3 借鉴 BaiLongma）===
+# 能力目录 + 运行时按信号裁剪工具集。enabled: false 默认关闭——全员挂载行为不变（ADR-009）；
+# 开启后：运行时可 enable/disable 工具（/tools），select(task) 按任务文本确定性裁剪子集
+# （命中 skill 触发词/描述词元，不足回退全量防饿死）。always 里的工具始终保留。
+tool_market:
+  enabled: false
+  min_tools: 6
+  always: []
+
 # === L5 接入 ===
 wakeword:
   # OpenWakeWord 唤醒词（本地离线，ONNX 模型）

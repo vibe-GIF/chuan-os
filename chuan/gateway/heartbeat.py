@@ -89,6 +89,12 @@ class Heartbeat:
         except Exception:  # noqa: BLE001
             report["queue"] = {}
 
+        # N51 工具市场状态（开启时报告上下架数量；关闭/失败按空）
+        try:
+            report["market"] = sup.tool_market.stats()
+        except Exception:  # noqa: BLE001
+            report["market"] = {}
+
         report["healthy"] = sup._is_awake and brain_ok
         return report
 

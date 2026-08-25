@@ -105,6 +105,21 @@ class RuntimeSupervisor:
             memory=self.memory,
         )
 
+        # N51 工具市场：能力目录 + 运行时按信号裁剪（P3 借鉴 BaiLongma）。
+        # enabled=false（默认）时零成本旁路，AgentPool 不过滤（ADR-009 全量挂载不变）。
+        from chuan.tool_market import ToolMarket, load_tool_market_cfg
+
+        _tm_cfg = load_tool_market_cfg(config_path)
+        self.tool_market = ToolMarket(
+            self.tool_registry, self.skill_registry,
+            enabled=_tm_cfg["enabled"],
+            min_tools=_tm_cfg["min_tools"],
+            always=_tm_cfg["always"],
+        )
+        if _tm_cfg["enabled"]:
+            # 市场开启：默认 spawn 只注入上架工具（运行时 enable/disable 生效）
+            self._agent_pool.tool_filter = lambda tools: self.tool_market.enabled_tools()
+
         self._orchestrator: Orchestrator | None = None
         self._workers: dict[str, PersonaRole] = {}
         self._chief_role: PersonaRole | None = None
@@ -894,6 +909,23 @@ class RuntimeSupervisor:
             return self.task_queue.stats()
         except Exception:  # noqa: BLE001 - 状态失败按空
             return {"enabled": False}
+
+    # ------------------------------------------------------------------ #
+    # N51 工具市场 —— 状态/按信号裁剪（/tools 数据源）
+    # ------------------------------------------------------------------ #
+    def tool_market_status(self) -> dict[str, Any]:
+        """N51 工具市场状态：开关/数量/下架名单 + 全量目录。"""
+        try:
+            return {**self.tool_market.stats(), "catalog": self.tool_market.catalog()}
+        except Exception:  # noqa: BLE001 - 状态失败按空
+            return {"enabled": False}
+
+    def tool_market_select(self, task: str, min_tools: int | None = None) -> list[str]:
+        """N51 按信号裁剪：给定任务文本，确定性返回相关工具名列表。"""
+        try:
+            return [t.name for t in self.tool_market.select(task, min_tools=min_tools)]
+        except Exception:  # noqa: BLE001 - 失败返回空
+            return []
 
     # ------------------------------------------------------------------ #
     # N27 知识原子自动沉淀 —— 人工确认队列（/howto 数据源）

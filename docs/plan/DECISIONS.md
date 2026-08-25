@@ -661,3 +661,18 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: V1 不做屏幕截图/录屏采集（Windows 截屏 + 视频抽帧留待后续）；不做 PDF 直解析（需先转图，留待后续）；不做图片目标检测/坐标定位（描述文本即可）；不把视觉脑加入文本路由（qwen-vl 只用于看图的 handler，避免污染文本路由计费/行为）。
 
 **落地记录（已完成，2026-08-24，N50）**: `skills/vision_analyze.yaml`（trigger 关键词）+ `skills/handlers/vision_analyze.py`（`_load_vision_cfg`/`_resolve_api_key`/`_image_data_uri`/`_call_vision`/`vision_analyze`）+ `config/config.yaml`（`brains.vision`，仅新增该段）+ `tests/test_vision_analyze.py`（8 例：注册/触发词/空输入/缺文件/缺 key/mock 本地图 data URI/mock URL/调用失败降级）。验收：`pytest tests/test_vision_analyze.py` 8 passed ✓；`BrainRegistry` 加载含 vision、`ToolRegistry.get_tools()` 含 vision_analyze ✓；端到端真实调用（百炼 qwen-vl-plus，本地生成 64x64 红色 PNG）→ 返回「整个画面由纯红色填充…无文字 OCR…可能是测试图」✓。
+
+## ADR-046: 工具市场（N51，能力目录 + 运行时按信号裁剪工具集）
+
+**决策**: 落地 ROADMAP P3 待办「工具市场 / 动态能力发现（运行时按信号裁剪工具集，借鉴 BaiLongma）」——在 ADR-009（统一注册表、全员默认挂载）之上加一个「市场化 + 确定性按信号裁剪」旁路，新增 `chuan/tool_market.py` 的 `ToolMarket`：
+- **目录（catalog）**：把 ToolRegistry 里所有工具（handler skill / MCP / extra）列成带来源与描述的市场清单，可浏览上下架态；
+- **运行时开关（enable/disable）**：动态「上架/下架」工具，下架后新 spawn 的 agent 不再注入（经 `AgentPool.tool_filter` 生效）；
+- **按信号裁剪（select）**：给定任务文本**确定性**选出相关子集——词元交集计分（**CJK 逐字拆分**让中文子串可命中、英文/数字整词），命中不足 `min_tools` 回退全量（防饿死），`always` 名单强制保留；**不依赖 LLM**（项目惯例：确定性路径不用模型）。
+
+**默认关闭（`tool_market.enabled: false`）**：行为与原来完全一致——零成本旁路，AgentPool 不过滤，ADR-009 全量挂载不变；开启后运行时经 `/tools` 上架/下架生效。
+
+**理由**: 工具越挂越多，agent 每次都要在全集里挑（长上下文 + 注意力噪声）。市场化 + 按信号裁剪把「能力全集」变成「按任务收敛的子集」，降低每轮工具选择负担；`enabled` 开关保证向后兼容，且裁剪走纯规则确定性路径，可测、可预期、可复现。
+
+**反例**: 不做 LLM 自主选工具（不可测、费 token，与项目「确定性路径不用模型」惯例相悖）；不做工具全生命周期商店（上架/评分/安装）——当前只做挂载级裁剪，够用即止；`enabled: false` 为默认，不默认改变挂载行为（对齐 ADR-009 减法语义）。
+
+**落地记录（已完成，2026-08-24，N51）**: `chuan/tool_market.py`（`ToolMarket` + `_tokenize`（CJK 逐字拆）+ `load_tool_market_cfg`）+ `config/config.yaml`（`tool_market` 段，默认关闭）+ `chuan/agent_pool.py`（`tool_filter` 注入点，过滤失败回退全量不阻断 spawn）+ `chuan/runtime_supervisor.py`（构建 market、开启时挂 tool_filter、`tool_market_status`/`tool_market_select`）+ `chuan/gateway/heartbeat.py`（健康报告 `market` 段）+ `chuan/main.py`（`/tools` 命令：目录 / enable / disable / select / refresh）+ `tests/test_tool_market.py`（9 例）。验收：`pytest tests/test_tool_market.py` 9 passed ✓；回归 test_main/test_role/test_gateway_components/test_agent_harness 103 passed ✓。测试暴露并修复两个真实缺陷：`_tokenize` 原把整段 CJK 当一个词元致中文子串无法命中 → 改逐字拆分；`enable/disable` 在目录未加载时 `_source_of` 为空致误判未知工具 → 加 `_collect()` 懒加载。
