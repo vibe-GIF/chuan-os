@@ -1,4 +1,4 @@
-"""HTTP 网关（N46 / ADR-041：局域网 HTTPS + 手机 PWA 接入）单元测试。
+"""HTTP 网关（N48 / ADR-043：局域网 HTTPS + 手机 PWA 接入）单元测试。
 
 覆盖：配置解析、静态 PWA 服务、/api/health、SCENE WebSocket（hello/scene/patch）、
 /api/message 路由与回复回传、/api/hud 命令下发与广播、TLS 缺失静默降级。

@@ -22,6 +22,9 @@ dependencies = [
     "openai>=1.50.0",
     "ollama>=0.3.0",
     "redis>=5.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]

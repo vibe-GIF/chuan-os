@@ -1,4 +1,4 @@
-"""N46 局域网 HTTPS + 手机 PWA 接入网关（ADR-041）。
+"""N48 局域网 HTTPS + 手机 PWA 接入网关（ADR-043）。
 
 在既有 HUD（TCP → Flutter 悬浮层）之上新增一个 Web 旁路，让手机在
 同局域网经 HTTPS 访问 PWA 并下发/接收 HUD 命令：
@@ -70,8 +70,8 @@ class HttpGateway:
         self.host = str(config.get("host", _DEFAULT_HOST))
         self.port = int(config.get("port", _DEFAULT_PORT))
         self.tls = bool(config.get("tls", True))
-        self.cert_path = str(self._resolve(config.get("cert_path", "data/https_cert.pem")))
-        self.key_path = str(self._resolve(config.get("key_path", "data/https_key.pem")))
+        self.cert_path = str(self._resolve(config.get("cert_path", "certs/https_cert.pem")))
+        self.key_path = str(self._resolve(config.get("key_path", "certs/https_key.pem")))
         self.web_root = self._resolve(config.get("web_root", "web/"))
 
         self.supervisor = supervisor

@@ -8,7 +8,8 @@
 docs/
 ├── README.md            # 本文档：导航总入口
 ├── guide/               # 📘 指南类
-│   └── DEVELOPMENT.md   #   开发指南（架构/概念/目录/规范/FAQ）
+│   ├── DEVELOPMENT.md   #   开发指南（架构/概念/目录/规范/FAQ）
+│   └── PWA-HUD.md       #   手机 PWA HUD 联调说明（N48 / ADR-043）
 ├── plan/                # 🗺️ 方向类（路线 + 决策）
 │   ├── ROADMAP.md       #   开发路线 N0–N26 节点状态
 │   └── DECISIONS.md     #   ADR-001~021 架构决策记录
@@ -31,6 +32,7 @@ docs/
 | 文档 | 主题 | 想知道什么时看这里 |
 |---|---|---|
 | [guide/DEVELOPMENT.md](./guide/DEVELOPMENT.md) | **开发指南**：架构、核心概念、目录结构、开发规范、FAQ | 怎么开发 / 项目怎么搭的 |
+| [guide/PWA-HUD.md](./guide/PWA-HUD.md) | **手机 PWA HUD 联调说明**（N48）：证书、网关启动、手机 HTTPS 接入、协议/API、验收 | 手机怎么连 / PWA 怎么调（N48） |
 | [plan/ROADMAP.md](./plan/ROADMAP.md) | **开发路线**：N0–N26 节点状态、验收标准、依赖关系 | 做到哪了 / 下一步做什么 |
 | [plan/DECISIONS.md](./plan/DECISIONS.md) | **架构决策记录（ADR-001~021）**：每个重大决策的取舍与理由 | 为什么这么做 |
 | [reference/REFERENCES.md](./reference/REFERENCES.md) | **借鉴来源**：OpenClaw/Jarvis/LangGraph/BaiLongma/Aivy/DSH 等项目映射 | 设计出处 / 抄了谁 |

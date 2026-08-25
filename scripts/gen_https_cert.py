@@ -1,7 +1,7 @@
-"""Generate a self-signed TLS cert for the LAN HTTPS gateway (N46 / ADR-041).
+"""Generate a self-signed TLS cert for the LAN HTTPS gateway (N48 / ADR-043).
 
 Usage:
-    python scripts/gen_https_cert.py [--dir data] [--days 825]
+    python scripts/gen_https_cert.py [--dir certs] [--days 825]
 
 Writes <dir>/https_cert.pem + <dir>/https_key.pem (self-signed, SAN includes
 localhost and this machine's LAN IPv4s so mobile phones on the LAN can reach it).
@@ -147,7 +147,7 @@ def _via_cryptography(out_dir: Path, days: int, san: str) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate HTTP gateway self-signed TLS cert")
-    parser.add_argument("--dir", default="data", help="output dir (default: data)")
+    parser.add_argument("--dir", default="certs", help="output dir (default: certs)")
     parser.add_argument("--days", type=int, default=825, help="validity days (default: 825)")
     args = parser.parse_args(argv)
 

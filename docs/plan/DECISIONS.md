@@ -590,7 +590,7 @@ blackboard/
 
 **反例**: 不引入 psutil/GPUtil 等新依赖（标准库足够且跨平台）；不做 SSH/IP 主动连通检测（会发起网络请求，超出「本地资源感知」只读边界，仅列配置与现网连接）；不做桌面截屏/录屏（该能力属 P4 视觉理解、依赖具体模型，另行规划）。
 
-**落地记录（已完成，2026-08-24，N46）**: `skills/handlers/system_status.py` + `skills/system_status.yaml` ＋ `skills/handlers/desktop_status.py` + `skills/desktop_status.yaml` ＋ `skills/handlers/ssh_status.py` + `skills/ssh_status.yaml` ＋ `skills/handlers/git_status.py` + `skills/git_status.yaml`，均为 `type: handler`（模块 `handlers.<name>`）。未改 `config.yaml`。实测（.venv）：`system_status()` 返回 Windows 11/16 核/内存 73%/C+D 双盘占用 ✓；`desktop_status()` 返回 1536x864 + 前台窗口标题 ✓；`ssh_status()` 返回 known_hosts 主机 8.138.91.61 ✓；`git_status()` 对真实仓库返回分支/最近提交 ✓、对项目根（非 git 仓库）如实报 `[ERROR] 不是 git 仓库` ✓。触发词匹配验证：`看下磁盘→system_status`、`SSH状态→ssh_status`、`看一下git状态→git_status` 均命中 ✓。文件由 `[IO.File]::WriteAllText`（UTF8-no-BOM、LF）写入（IDE Write/Edit 服务异常退避）。
+**落地记录（已完成，2026-08-24，N46）**: `skills/handlers/system_status.py` + `skills/system_status.yaml` ＋ `skills/handlers/desktop_status.py` + `skills/desktop_status.yaml` ＋ `skills/handlers/ssh_status.py` + `skills/ssh_status.yaml` ＋ `skills/handlers/git_status.py` + `skills/git_status.yaml`，均为 `type: handler`（模块 `handlers.<name>`）。未改 `config.yaml`。实测（.venv）：`system_status()` 返回 Windows 11/16 核/内存 73%/C+D 双盘占用 ✓；`desktop_status()` 返回 1536x864 + 前台窗口标题 ✓；`ssh_status()` 返回 known_hosts 主机 8.138.91.61 ✓；`git_status()` 对真实仓库返回分支/最近提交 ✓、对项目根（非 git 仓库）如实报 `[ERROR] 不是 git 仓库` ✓。触发词匹配验证：`看下磁盘→system_status`、`SSH状态→ssh_status`、`看一下git状态→git_status` 均命中 ✓。文件由 `[IO.File]::WriteAllText`（UTF8-no-BOM、LF）写入（IDE Write/Edit 服务异常退避）。 澄清：本项目 `langchain_core`（1.6.0）并无版本/导入问题——曾在诊断命令中误用 `sys.path.insert(0,'chuan')` 导致 `AsyncCallbackManager` 假 ImportError，从项目根正常导入（`from chuan.adapters.skill_loader import SkillRegistry`）即可复现全部 10 个 skill 与 4 个新工具正常加载、真实返回，无真实环境故障。
 
 ## ADR-042: HTTP API / FastAPI Gateway（N47，客户端/服务器解耦接入层）
 
@@ -609,3 +609,22 @@ blackboard/
 - `POST /api/chat {"message":"你好","session_id":"api_acceptance"}` → 返回幕僚长真实答复 + `route: chief_of_staff` ✓。
 
 **踩坑**：默认 `session_id` 会话在重启后经 SqliteSaver 恢复的历史里偶有「`AIMessage` 的 tool_call 缺对应 `ToolMessage`」的旧存档 → `/api/chat` 返回 500；属既有存档历史不完整问题（非网关 bug），换新 `session_id` 即恢复——未来可考虑在会话初始化时清洗不完整 tool_call 历史。**IDE 异常**：Write/Edit 工具在本机对含较复杂 AST 的文件报 `IOutlineService` 异常，改用「最小占位 Write + Edit 覆盖、文档用小块递增追加」规避。
+
+## ADR-043: 局域网 HTTPS + 手机 PWA 接入（N48，HTTP/HTTPS 网关 + SCENE WebSocket）
+
+**决策**: 新增 `chuan/gateway/http_gateway.py` + `web/` PWA + `scripts/gen_https_cert.py` 自签证书脚本，落地 ROADMAP P2「局域网 HTTPS + 手机 PWA 接入」。在既有 HUD（TCP → Flutter 悬浮层）之上加一个 **aiohttp 实现的 Web 旁路**（对比 ADR-042 的 FastAPI 是「客户端/服务器解耦编程式通道」，本节点是「手机同局域网 HTTPS 访问 PWA 并下发/接收 HUD 命令」的移动端通道，两者分层互补）：
+- **HTTP/HTTPS 静态服务**：把 `web/` 的 PWA（`manifest.webmanifest` + `sw.js` + app/style/icon）推给手机；自签证书缺失/加载失败 → **静默退回纯 HTTP** 并打警告（旁路降级，不阻断）。证书用 `scripts/gen_https_cert.py` 生成（`certs/https_cert.pem` + `certs/https_key.pem`；SAN 含 localhost + 本机局域网 IP），openssl → Git 自带 openssl → cryptography 三档，全不可用则明确报错交由网关降级；
+- **SCENE 协议 WebSocket**（`/ws`）：与 N34 同一套 scene 状态（agent/effect/user/ai/monitor），同一协议只换传输层——`hello`（caps 协商）/`scene`（全量）/`patch`（增量）帧，手机 PWA 复用 Flutter 悬浮层那套帧；前端可发 `message:{text}` 走同一条协议把话送进 supervisor；
+- **API**：`POST /api/message`（把手机输入经 `RuntimeSupervisor.dispatch` 路由，回复回传，同时把 user/ai/effect 打平到所有 WS 客户端与 HUD）、`POST /api/hud`（显式下发 wake/hide/agent/effect/user/ai/monitor 命令并广播 SCENE 帧）、`GET /api/health`（存活+绑定探针）；
+- **旁路设计**（对齐项目惯例）：未绑定 supervisor/hud → 对应 API 返回明确错误码但静态页/WS 仍可用；WS 客户端断开即弃、发送失败不回抛；任何 handler 异常转 JSON 错误，绝不拖垮主进程；`AgentHarness.on_done` 后台委派完成自动广播 HUD 帧（旁路增强）；
+- **独立启动**：`python -m chuan.gateway.http_gateway [--supervisor]`（`--supervisor` 拉起完整栈 RuntimeSupervisor+HUD+wake_up）。
+
+**理由**: N34 ADR-029 已为手机 PWA 铺好「同一协议 TCP/WebSocket 只换传输层」的路，本节点把它跑通——手机同局域网 HTTPS 访问 PWA、可安装（manifest+SW）、经 SCENE WebSocket 实时收 scene 帧、直接下发/接收 HUD 命令。选 aiohttp（已有依赖，`WebSocketResponse` + 静态文件一手包办）而非再上一层 FastAPI/uvicorn，保持薄层与最小依赖；WebSocket 天然双工，比 ADR-042 的请求/响应 `dispatch` 更适合「持续投影 + 双向 intent」的施工模型。
+
+**反例**: 不做鉴权/加密密钥托管（本地/局域网自签足够，把收紧交给反向代理，与 ADR-042 同立场）；不做双向 intent 回流以外的多态协议扩维；不把 HUD scene 做持久化（易失投影，重连由后端 `scene` 全量恢复，沿用 ADR-029）；不引入新的 Web 框架依赖（aiohttp 即可）；`vector_store`/`rag_corpus`/`faiss` 保持**预留未实现**（见下「文档口径修正」）。
+
+**落地记录（已完成，2026-08-24，N48）**: `chuan/gateway/http_gateway.py`（`HttpGateway`：config 解析/静态服务/`/ws` SCENE/`/api/message` `/api/hud` `/api/health`/TLS 静默降级/`broadcast` 线程安全入口/`attach` 挂 supervisor+hud/`main`）+ `web/`（`index.html`/`style.css`/`app.js`/`manifest.webmanifest`/`sw.js`/`icon.svg`）+ `scripts/gen_https_cert.py` + `config/config.yaml`（`http:` 段，仅新增该段）+ `tests/test_http_gateway.py`（13 例：配置/静态/health/message 路由与回复/WS 握手 hello+scene/WS message 帧派发广播/hud 命令广播/路径穿越守卫/TLS 缺失降级）。测试：`test_http_gateway.py` 13 passed（+`test_hud.py` 隔离复跑通过——hud 网络用例仍是有文档记录的历史 flaky）。端到端实测（.venv，真实自签证书）：`HTTPS / -> 200 text/html 含川流` ✓、`/manifest.webmanifest -> application/manifest+json` ✓、`/api/health -> {ok,tls:true,...}` ✓、`WSS /ws -> hello{client:chuan-os,caps:scene} + scene{version:1}` ✓。验收路径：手机同局域网 `https://<电脑IP>:8443/` → PWA 可安装（SW 注册 + manifest）→ 输入消息经 `/api/message`（或 WS `message:`）路由 → 手机实时收 SCENE patch 显示 HUD 状态/AI 回复；`POST /api/hud` 显式下发 HUD 命令。
+
+### 文档口径修正（N48 顺手，预留未实现）
+
+ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现——纠正口径：**长期记忆的召回真相是 FTS5 词法**（N13 时代只有 FTS，N13 描述中的「+向量」系过度宣称，已改）；**向量语义召回唯一已落地路径是 N43 的 sqlite-vec 旁路**（ADR-038，嵌入云端、默认关闭）；**本地 `faiss` / `vector_store` / `rag_corpus` 保持「预留未实现」**——没有任何代码在消费 `memory.vector_store` / `memory.rag_corpus`，也未被 N43 使用（N43 用 `memory_fts.db` 里的 vec0 表，与上述字段无关）。
