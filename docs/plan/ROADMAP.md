@@ -163,6 +163,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 
 ## 已知遗留
 
+- **dsh 融合 + 界面形态（ADR-051，2026-08-24）**：不学 dsh 起 agent 工作台端口，维持「core 持 scene + 多投影」现状（TUI / HUD / PWA 手机 / 微信 / 语音，本地+远程+移动+免提已全覆盖）；工作台 UI 不自己造（对齐编排层定位，ADR-007）。**触发条件**：dsh 正式版（API 稳定）发布 → 评估路径 B（把 chuan 网关/vault MCP 包装成 dsh 插件）与路径 C（借 dsh 的 UI 当工作台投影）。
 - ~~原 9 个旧 persona 格式不一致待回填~~ → **N3 已用双格式兼容解决**：`PersonaLoader` 自动识别 legacy allowlist 和 ADR-009 deny 两种写法，两者都能正常出生，无需强制回填。若日后想统一为 ADR-009 格式仍可回填，但非阻塞项。
 - 旧 persona 缺 `role` 字段时，`role_map()` 会退化为用 persona 名当 role（如 `lawyer→lawyer`），N4 路由可用但语义不如显式 role 清晰。
 - API 备忘：`langgraph-checkpoint` 4.2.0 已无 `MemorySaver`，改用 `from langgraph.checkpoint.memory import InMemorySaver`（N5/N6 用记忆存档时注意）。
