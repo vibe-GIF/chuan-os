@@ -47,6 +47,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N45 任务队列+事件总线** | Redis Streams 可靠任务队列 + Pub/Sub 事件总线，跨进程通信与后台任务可靠执行（ADR-040） | 架构升级 | ✅ |
 | **N46 本地资源感知采集器** | 系统/桌面/SSH/Git 状态确定性采集 handler skill（纯标准库 + ctypes，失败静默降级，ADR-041） | 资源感知 | ✅ |
 | **N47 HTTP API Gateway** | FastAPI 客户端/服务器解耦接入层：/health + /api/chat（ADR-042） | 架构升级 | ✅ |
+| **N48 局域网 HTTPS + 手机 PWA 接入** | HTTP/HTTPS 网关 + PWA（manifest/SW）+ SCENE WebSocket：手机同局域网 HTTPS 访问并下发/接收 HUD 命令 + 顺手修正文档口径（ADR-043） | 架构升级 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
 
@@ -178,7 +179,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 |------|--------|--------|----------|------|
 | **N11 修复启动+基础工具** | 修启动报错、programmer改brain、MCP filesystem实现、bash工具 | P0-P1 | - | 让项目能跑起来、能干活，**DONE** |
 | **N12 会话持久化+sub_agent** | SqliteSaver、call_pi工具注入、pi作为programmer子agent | P1 | - | 重启不丢，编程活能调pi，**DONE** |
-| **N13 三层记忆体系** | 短期会话(SqliteSaver)+长期检索(FTS5+向量)+共享黑板(Obsidian)完善 | P2 | - | 借鉴 OpenClaw 三层记忆，**DONE** |
+| **N13 三层记忆体系** | 短期会话(SqliteSaver)+长期检索(FTS5)+共享黑板(Obsidian)完善（向量语义=预留未实现，见下；现由 N43 sqlite-vec 旁路承担，本地 faiss/vector_store/rag_corpus **预留未实现**） | P2 | - | 借鉴 OpenClaw 三层记忆，**DONE** |
 | **N14 SOUL.md 角色驱动** | persona YAML → 目录+SOUL.md/MEMORY.md/config.yaml 迁移，PersonaLoader双格式兼容 | P2 | ADR-013 | 借鉴 OpenClaw/Jarvis，agent可自写记忆，**DONE** |
 | **N15 语音交互闭环** | OpenWakeWord唤醒+faster-whisper STT+edge-tts/piper TTS，全双工语音 | P3 | ADR-011 | 最终交互方式，后台常驻，**DONE** |
 | **N16 角色独立音色+语音素材** | config/voices.yaml、事件音效（程序化合成）、多助手音色配置 | P3 | - | 借鉴 assistant-x-openclaw，**DONE** |
@@ -315,7 +316,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P1 | ✅ 知识库维护层：改写实体页 + 矛盾调和 + 过期替换 + index/log → **N24 `reconcile`/`lint`** | obsidian-second-brain |
 | P2 | ✅ Mission 长任务追踪 + 跨对话看板 → **N32/ADR-027** | Aivy |
 | P2 | ✅ 流式打断不丢工具（保留已执行结果，只重跑未完成） → **N35/ADR-030** | Aivy |
-| P2 | 局域网 HTTPS + 手机 PWA 接入 | BaiLongma |
+| P2 | ✅ 局域网 HTTPS + 手机 PWA 接入 → **N48/ADR-043** | BaiLongma |
 | P2 | ✅ 记忆加「类型 + 硬容量」约束（学 CC 4 类 + Hermes 2200 字符封顶） → **N31/ADR-026** | 调研（CC/Hermes） |
 | P2 | ✅ 技能即记忆：重复流程自动沉淀 SKILL.md → **N30/ADR-025**（prompt 型技能） | 调研（Codex/Hermes） |
 | P2 | ✅ 自动技能创建落地：干完活自动创建新技能（`skill_creator.py`） → **N30/ADR-025** | 自研（REFERENCES L36） |
@@ -326,7 +327,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P3 | 工具市场 / 动态能力发现（运行时按信号裁剪工具集） | BaiLongma |
 | P3 | 本地资源感知（系统/桌面/SSH/Git 采集器） → 完成（**N46/ADR-041**，2026-08-24）；天气采集已由既有 weather_check skill 覆盖 | BaiLongma |
 | P3 | ✅ HTTP API / FastAPI Gateway（客户端/服务器解耦，接入层扩展） → **N47/ADR-042** | 自研（ADR-011） |
-| P3 | 文档口径修正：向量语义召回过度宣称 → 标注「预留未实现」（faiss/vector_store/rag_corpus） | 自审 |
+| P3 | ✅ 文档口径修正：向量语义召回过度宣称 → 标注「预留未实现」（faiss/vector_store/rag_corpus） → **N48/ADR-043** | 自审 |
 | P3 | 向量 RAG 评估闸门：**触发条件** = 内部+外接库合计 >1000 篇 / 100 万字符 **且** 出现「关键词漏召回」具体案例，才评估本地 embedding+faiss（faiss 1.15 已装、缺 sentence-transformers/torch）；外接 Obsidian 库接入 FTS5 先手已落地（**N25/ADR-020**），wiki 归位留待 | 自审（2026-08-24 RAG 可行性评估） |
 | P4 | 机器绑定加密 / 陌生人距离 / 自动锁屏 | Aivy |
 | P4 | 媒体生成（音乐/视频） | BaiLongma |
