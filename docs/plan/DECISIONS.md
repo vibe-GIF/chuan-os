@@ -680,13 +680,31 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 ## ADR-047: 视觉理解 V2（N52，视频抽帧 + PDF/表格转图后走视觉分析）
 
 **决策**: 落地 ROADMAP P3 待办「视觉理解扩展（录屏/PDF/表格转图留待扩展）」——在 N50 `vision_analyze` 之上按**文件扩展名分派**，把「只能看图」扩成「视频/PDF/表格也能看」：
-- **视频/录屏**：`_frame_to_data_uri` 用系统 `ffmpeg` 抽首帧（对齐 voice/tts.py 的 ffmpeg 惯例，`_ffmpeg_bin` PATH 优先 + 常见安装位兜底）→ PNG data URI → 走 `_call_vision`；
-- **PDF**：`_pdf_to_data_uri` 用 `pdf2image`（含 poppler）转首页图；**缺依赖返回可读提示**（不硬装 poppler 重依赖）；
-- **表格 CSV/TSV**：`_table_to_data_uri` 用标准库 `csv` 读 + Pillow 渲染成表格网格图（行/列上限防溢出）；缺 Pillow 返回可读提示；
+- **视频/录屏**：`_video_first_frame` → `_ffmpeg_bin()`（对齐 voice/tts.py：`FFMPEG_BIN` 环境变量 → imageio-ffmpeg 自带 → 系统 PATH）→ `_ffmpeg_extract_first_frame` 用 ffmpeg `-frames:v 1` 抽首帧 → **JPEG** data URI → 走 `_call_vision`；缺 ffmpeg / 抽帧失败返回可读提示；
+- **PDF**：`_pdf_to_img` 用 `pdf2image`（含 poppler）转首页图 → JPEG data URI；**缺依赖返回可读提示**（不硬装 poppler 重依赖）；
+- **表格**：`_table_to_img` V1 只渲染 **csv**（`_csv_rows` 优先 pandas、缺则 stdlib `csv` 读行）+ Pillow 渲染成表格网格图 → JPEG data URI；**xlsx/xls 留提示**请先转 csv；缺 Pillow 返回可读提示；
+- **分派**：`_resource_to_data_uri` 按后缀集 `_PDF_SUFFIXES/_TABLE_SUFFIXES/_VIDEO_SUFFIXES` 路由，其余默认按图片走原 `_image_data_uri`；
 - **静默降级**（对齐项目惯例）：缺 ffmpeg / 缺转换依赖 / 转换失败 / 文件不存在 / 缺 key / 模型失败 → 全部返回可读文本，绝不抛错；空输入、文件不存在、缺 key、模型失败的**文案契约与 N50 完全一致**（旧测试不破）。
 
 **理由**: 录屏/PDF/表格是日常高频输入，转成图后统一走既有视觉模型（qwen-vl）即可复用全部能力；视频抽帧零新增依赖（系统 ffmpeg），PDF/表格转换按需轻依赖、缺则降级提示——符合「不新增重型依赖 + 失败静默降级」的项目惯例。
 
-**反例**: V1 不做多页 PDF 逐页分析（只首页）、不做长视频多帧采样（只首帧）、不做表格数值计算（视觉只描述内容）；不把 ffmpeg/pdf2image/Pillow 写进硬依赖（保持按需可选）。
+**反例**: V1 不做多页 PDF 逐页分析（只首页）、不做长视频多帧采样（只首帧）、不做 xlsx 表格渲染（V1 仅 csv，xlsx 留提示）、不做表格数值计算（视觉只描述内容）；不把 ffmpeg/pdf2image/Pillow 写进硬依赖（均按需导入、缺失静默降级）；Pillow 为 csv 渲染落图所需。
 
-**落地记录（已完成，2026-08-24，N52）**: `skills/handlers/vision_analyze.py`（`_ffmpeg_bin`/`_frame_to_data_uri`/`_pdf_to_data_uri`/`_table_to_data_uri` + `vision_analyze` 按 `_IMAGE_EXTS/_VIDEO_EXTS/_PDF_EXTS/_TABLE_EXTS` 分派）+ `skills/vision_analyze.yaml`（触发词扩展：看 PDF/读表格/看视频/录屏/抽帧）。测试：`tests/test_vision_v2.py` 9 例（视频真 ffmpeg 抽帧/缺 ffmpeg 降级/坏视频降级/PDF 缺依赖降级/CSV 渲染或降级/空表格降级/图片回归/URL 回归/未知扩展名按图）+ `tests/test_vision_analyze.py` 8 例回归。验收：两文件 17 passed ✓；本机实测 ffmpeg 抽帧生成 data URI 成功、Pillow 渲染 CSV 表格图成功。
+**落地记录（已完成，2026-08-24，N52）**: `skills/handlers/vision_analyze.py`（`_ffmpeg_bin`/`_pdf_to_img`/`_csv_rows`/`_table_to_img`/`_ffmpeg_extract_first_frame`/`_video_first_frame`/`_resource_to_data_uri` + `vision_analyze` 经 `_resource_to_data_uri` 按 `_PDF_SUFFIXES/_TABLE_SUFFIXES/_VIDEO_SUFFIXES` 分派）+ `skills/vision_analyze.yaml`（触发词扩展：看 PDF/看pdf/读表格/看表格/视频截图/看视频/分析这个文件）。测试：`tests/test_vision_v2.py` 11 例（触发词扩展/无输入/图片仍走原 data URI/csv 真实渲染出图/csv 走模型收到 data URI/xlsx 留提示/csv 缺 Pillow 降级/PDF 缺依赖降级/视频抽帧 mock 走模型/缺 ffmpeg 降级/抽帧失败降级）+ `tests/test_vision_analyze.py` 8 例回归。验收：两文件 19 passed ✓；全量回归（tests）680 passed、2 skipped，唯一失败为既有 flaky `test_hud.py::test_scene_mode_off_falls_back_to_legacy_only`（隔离复跑通过，hud.py 未改动），无新增失败。
+
+## ADR-049: 声纹防欺骗（N54，enroll_speaker + anti_spoof 规则版 V1）
+
+**决策**: 落地 ROADMAP P4 待办「声纹防欺骗（anti_spoof + enroll_speaker）」V1——新增 `chuan/voice/spoof.py`，给语音入口加「反回放/反环境噪声 + 声纹核对」：
+- **特征**（`extract_features`）：纯 numpy 规则，float32(-1..1) 域计算——RMS 能量轮廓（固定 32 点向量）+ rms 均值/方差/峰值 + 过零率 + 静音帧占比 + 时长；
+- **注册**（`enroll_speaker`）：提特征 → 原子落盘 `data/speakers/<name>.json`（tmp+rename 防半截 JSON）；`_safe_name` 防路径穿越；过短/全静音拒入库；`load_speaker`/`list_speakers`/`remove_speaker` 磁盘真相；
+- **反欺骗**（`anti_spoof`）两级判断：
+  1. **回放 / 环境噪声**（不依赖声纹库）：静音占比 ≥0.85 / 时长 <0.5s / 能量过低 → 直接判 spoof（廉价指纹）；
+  2. **已注册声纹核对**：能量轮廓相关 + 能量/时长/过零率贴近度加权打分，低于阈值判「声纹不匹配（疑似伪造）」；未注册 → 旁路 ok=True。
+- **int16 缩放兼容**（对齐 wake_word.py 教训）：麦克风流是 float32(-1..1)，本模块统一 float32 域，int16 输入自动 ×1/32768，阈值语义可预期；
+- **静默降级**：任何失败返回可读 dict（默认旁路 ok=True），绝不抛错；后续可换模型后端（pyannote/ecapa），接口不变。
+
+**理由**: 声纹安全的第一道防线是「区分真实人声 vs 回放/环境噪声」，规则版零模型依赖、可测可预期；`enroll_speaker` 是身份锚点，`anti_spoof` 两级判断在无声纹库时也能挡掉廉价伪造。
+
+**反例**: V1 不引 pyannote/ecapa 等重模型（后续可换后端，接口不变）；不做远端云端声纹（全部本地）；不做连续说话人跟踪（只做单段验证）；`data/speakers/` 不加密（V2 可做）。
+
+**落地记录（已完成，2026-08-24，N54）**: `chuan/voice/spoof.py`（`extract_features`/`enroll_speaker`/`load_speaker`/`list_speakers`/`remove_speaker`/`anti_spoof`/`_compare_voiceprint`/`_safe_name`/`_to_float32`）。测试：`tests/test_voice_spoof.py` 15 例（enroll 写盘读回/拒静音过短/路径穿越/特征形状/静音判 spoof/过短判 spoof/未注册旁路/匹配通过/异声纹判伪造/未知名旁路/list+remove/int16-float32 缩放/garbage 不抛）+ `tests/test_voice.py` 44 例回归。验收：两文件 59 passed ✓。
