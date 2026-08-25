@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from chuan.adapters.mcp_adapter import MCPAdapter
 from chuan.adapters.skill_loader import SkillRegistry, ToolRegistry
@@ -1078,8 +1078,13 @@ class RuntimeSupervisor:
         *,
         history: list[dict[str, str]] | None = None,
         session_id: str = "default",
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
-        """异步分发（与 dispatch 相同逻辑，支持 await）。"""
+        """异步分发（与 dispatch 相同逻辑，支持 await）。
+
+        ``on_progress``：per-call 进度回调（SSE 用），透传给最终岗位的
+        ``dispatch``（协程局部，多会话并发互不串扰）。
+        """
         if not self._is_awake:
             raise RuntimeError("幕僚长尚未唤醒。请先调用 wake_up()。")
 
@@ -1096,7 +1101,8 @@ class RuntimeSupervisor:
         if target and target in self._workers:
             role = self._workers[target]
             response = await role.dispatch(
-                message, session_id=session_id, aci_context=aci_block
+                message, session_id=session_id, aci_context=aci_block,
+                on_progress=on_progress,
             )
             return {
                 "messages": [{"role": "assistant", "content": response}],
@@ -1109,7 +1115,8 @@ class RuntimeSupervisor:
         if target and target in self._workers:
             role = self._workers[target]
             response = await role.dispatch(
-                message, session_id=session_id, aci_context=aci_block
+                message, session_id=session_id, aci_context=aci_block,
+                on_progress=on_progress,
             )
             return {
                 "messages": [{"role": "assistant", "content": response}],
@@ -1119,7 +1126,8 @@ class RuntimeSupervisor:
 
         # 3) 幕僚长自己处理
         return await self._dispatch_chief_async(
-            message, session_id=session_id, aci_context=aci_block
+            message, session_id=session_id, aci_context=aci_block,
+            on_progress=on_progress,
         )
 
     def _dispatch_chief(
@@ -1138,7 +1146,8 @@ class RuntimeSupervisor:
         return {"messages": [{"role": "assistant", "content": response}]}
 
     async def _dispatch_chief_async(
-        self, message: str, session_id: str = "default", aci_context: str = ""
+        self, message: str, session_id: str = "default", aci_context: str = "",
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """幕僚长自己的岗位处理消息（异步）。"""
         if self._chief_role is None:
@@ -1148,7 +1157,8 @@ class RuntimeSupervisor:
                 "route_method": "chief",
             }
         response = await self._chief_role.dispatch(
-            message, session_id=session_id, aci_context=aci_context
+            message, session_id=session_id, aci_context=aci_context,
+            on_progress=on_progress,
         )
         return {
             "messages": [{"role": "assistant", "content": response}],

@@ -77,3 +77,25 @@ curl -H "X-API-Key: <token>" http://127.0.0.1:8010/health
 **遗留观察（未修，取决于部署形态）**：
 - G4 无 token 默认全放行——设计如此（本地/局域网），暴露公网必须设 `CHUAN_API_TOKEN`；
 - G5 bus/queue 在 Redis 不可达时降级 `backend: memory`——符合「协调层可降级」设计，但跨进程队列/总线实际不生效，需运维确认 Redis 可达性。
+
+## 8. SSE 流式输出（/api/chat/stream，2026-08-25）
+
+补齐 ADR-042 留待扩展点「流式 SSE（留待 dispatch_async 上扩展）」的事件级版本；token 级打字机效果留待后续（接口已预留）。
+
+**事件协议**（`text/event-stream`）：
+
+| 事件 | data | 说明 |
+|---|---|---|
+| `start` | `{session_id}` | 连接建立、任务提交 |
+| `progress` | 岗位 `on_progress` 事件原样透传 | 工具开始/结束、子任务等（与 TUI 同源）|
+| `done` | `{reply, route, route_method}` | 最终回复 |
+| `error` | `{detail}` | dispatch 异常 |
+
+**实现要点**：
+- `role.dispatch` 新增 per-call `on_progress`（ContextVar 协程局部，`_progress_ctx`）——同一岗位实例并发服务多会话时各自隔离，不互相串扰（不像实例属性）；
+- `RuntimeSupervisor.dispatch_async` / `_dispatch_chief_async` 透传 `on_progress`；
+- 线程模型：`dispatch_async` 经 `run_coroutine_threadsafe` 调度到幕僚长常驻事件循环，on_progress 回调在 _loop 线程把事件放进线程安全 `queue.Queue`；FastAPI async 端点用 `asyncio.to_thread(q.get)` 读队列推 SSE，`asyncio.wrap_future` 跨循环等结果——**两侧线程安全，不跨循环调用 checkpointer**（避免 aiosqlite "attached to a different loop"）。
+
+**测试**：`tests/test_api.py` 由 12 例扩到 **14 例**（新增 SSE 事件流 start→progress→done、未就绪 503）。全量回归 **719 passed, 2 skipped**。
+
+**备注**：真实环境端到端 SSE 验证受 Windows→WSL 网络振荡（MCP 连接卡顿）受阻，契约由单测完整覆盖，待环境稳定再补实测。

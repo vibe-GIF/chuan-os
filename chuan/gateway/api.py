@@ -15,11 +15,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+import queue
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Callable
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -125,6 +129,12 @@ def _normalize_worker(sup: Any, name: str | None) -> str | None:
     return lw if lw in workers else None
 
 
+def _sse(event: str, data: dict[str, Any]) -> str:
+    """格式化一条 SSE 消息（事件名 + JSON data，中文不转义）。"""
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
 def create_app(
     *,
     supervisor: RuntimeSupervisor | None = None,
@@ -204,6 +214,68 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return ChatResponse(
             reply=reply, route=route, route_method=method, session_id=session_id
+        )
+
+    @app.post("/api/chat/stream", tags=["chat"], dependencies=[Depends(require_auth)])
+    async def chat_stream(req: ChatRequest) -> StreamingResponse:
+        """SSE 流式 Chat：推送 ``start`` / ``progress`` / ``done`` 事件。
+
+        事件级流式（token 级打字机效果留待后续，接口已预留）：``progress``
+        事件来自岗位 on_progress（工具开始/结束、子任务等，与 TUI 同源）。
+
+        线程模型：``dispatch_async`` 经 ``run_coroutine_threadsafe`` 调度到
+        幕僚长常驻事件循环（``sup._loop``），on_progress 回调在 _loop 线程里
+        把事件放进线程安全 ``queue.Queue``；本 async 端点在 FastAPI 事件循环
+        里 ``asyncio.to_thread`` 读队列并推 SSE——两侧线程安全，不跨循环调用
+        checkpointer（避免 aiosqlite "attached to a different loop"）。
+        """
+        sup = app.state.supervisor
+        if not sup.is_awake:
+            raise HTTPException(status_code=503, detail="幕僚长尚未就绪")
+        session_id = req.session_id or "default"
+        q: queue.Queue[tuple[str, Any]] = queue.Queue()
+
+        future = asyncio.run_coroutine_threadsafe(
+            sup.dispatch_async(
+                req.message, history=req.history, session_id=session_id,
+                on_progress=lambda ev: q.put(("progress", ev)),
+            ),
+            sup._loop,
+        )
+
+        async def _watch() -> None:
+            """等 dispatch 完成（跨循环 wrap_future），结果塞回队列 → 结束流。"""
+            try:
+                result = await asyncio.wrap_future(future)
+            except Exception as exc:  # noqa: BLE001 - 串成可读 error 事件
+                q.put(("error", {"detail": str(exc)}))
+                return
+            q.put(
+                (
+                    "done",
+                    {
+                        "reply": _last_message(result),
+                        "route": result.get("route"),
+                        "route_method": result.get("route_method"),
+                    },
+                )
+            )
+
+        async def gen():
+            yield _sse("start", {"session_id": session_id})
+            watcher = asyncio.create_task(_watch())
+            try:
+                while True:
+                    kind, data = await asyncio.to_thread(q.get)
+                    yield _sse(kind, data)
+                    if kind in ("done", "error"):
+                        break
+            finally:
+                watcher.cancel()
+
+        return StreamingResponse(
+            gen(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     return app

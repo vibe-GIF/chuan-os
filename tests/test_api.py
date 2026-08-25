@@ -1,4 +1,8 @@
 """N46 HTTP API / FastAPI Gateway（客户端/服务器解耦）测试。"""
+import asyncio
+import json
+import threading
+
 from fastapi.testclient import TestClient
 
 from chuan.gateway.api import create_app
@@ -18,6 +22,9 @@ class FakeSupervisor:
         self.is_awake = is_awake
         self.heartbeat = FakeHeartbeat()
         self._workers = {"lawyer": "lawyer", "researcher": "researcher"}
+        # SSE 端点经 run_coroutine_threadsafe 调度到 _loop（对齐真实 RuntimeSupervisor）
+        self._loop = asyncio.new_event_loop()
+        threading.Thread(target=self._loop.run_forever, daemon=True).start()
 
     def dispatch(self, message, history=None, session_id="default"):
         route = "programmer" if "程序" in message else "chief_of_staff"
@@ -34,6 +41,20 @@ class FakeSupervisor:
             ],
             "route": worker,
             "route_method": "worker",
+        }
+
+    async def dispatch_async(self, message, history=None, session_id="default",
+                             on_progress=None):
+        """异步分发：同步发两条进度事件后返回（模拟 SSE 进度流）。"""
+        if on_progress is not None:
+            on_progress({"event": "tool_start", "role": "fake",
+                         "tool": "recall_memory"})
+            on_progress({"event": "subtask_done", "role": "fake",
+                         "subtask": "s1", "success": True})
+        return {
+            "messages": [{"role": "assistant", "content": f"回：{message}"}],
+            "route": "chief_of_staff",
+            "route_method": "chief",
         }
 
 
@@ -160,3 +181,59 @@ def test_auth_open_when_no_token():
     app, _ = _app()
     with TestClient(app) as c:
         assert c.get("/health").status_code == 200
+
+
+# ── SSE 流式 Chat（/api/chat/stream）──
+
+def _parse_sse(body: str) -> list[tuple[str, dict]]:
+    """解析 SSE 文本 → [(event, data_dict), ...]。"""
+    out = []
+    for block in body.strip().split("\n\n"):
+        event = None
+        data = None
+        for line in block.splitlines():
+            if line.startswith("event: "):
+                event = line[len("event: "):]
+            elif line.startswith("data: "):
+                data = json.loads(line[len("data: "):])
+        if event is not None:
+            out.append((event, data or {}))
+    return out
+
+
+def test_chat_stream_sse_event_flow():
+    """SSE：start → progress×2 → done，含最终 reply 与路由。"""
+    app, _ = _app()
+    with TestClient(app) as c:
+        with c.stream(
+            "POST", "/api/chat/stream",
+            json={"message": "你好", "session_id": "sse1"},
+        ) as r:
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith("text/event-stream")
+            body = "".join(r.iter_text())
+    events = _parse_sse(body)
+    names = [e for e, _ in events]
+    assert names[0] == "start"
+    assert "progress" in names
+    assert names[-1] == "done"
+    # start 事件带 session_id
+    assert events[0][1].get("session_id") == "sse1"
+    # progress 事件是岗位 on_progress 原样透传
+    prog = [d for e, d in events if e == "progress"]
+    assert any(d.get("tool") == "recall_memory" for d in prog)
+    assert any(d.get("subtask") == "s1" for d in prog)
+    # done 事件带最终回复
+    done = events[-1][1]
+    assert done["reply"] == "回：你好"
+    assert done["route"] == "chief_of_staff"
+    assert done["route_method"] == "chief"
+
+
+def test_chat_stream_503_when_not_awake():
+    app, _ = _app(FakeSupervisor(is_awake=False))
+    with TestClient(app) as c:
+        with c.stream(
+            "POST", "/api/chat/stream", json={"message": "你好"},
+        ) as r:
+            assert r.status_code == 503

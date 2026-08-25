@@ -43,6 +43,7 @@ dispatch() 四步:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import os
 import re
@@ -66,6 +67,13 @@ def _env_int(name: str, default: int) -> int:
         return int(os.environ[name])
     except (KeyError, ValueError):
         return default
+
+
+# 协程局部的 per-call 进度回调（SSE 用）。ContextVar 天然按 asyncio 任务隔离：
+# 同一岗位实例并发服务多会话时，各自的 on_progress 不会互相串扰（不像实例属性）。
+_progress_ctx: contextvars.ContextVar[Callable[[dict[str, Any]], None] | None] = (
+    contextvars.ContextVar("chuan_progress_cb", default=None)
+)
 
 
 @dataclass
@@ -247,6 +255,7 @@ class PersonaRole:
         session_id: str = "default",
         aci_context: str = "",
         resume: bool = False,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> str:
         """岗位核心方法：接收任务，返回最终结果。
 
@@ -256,7 +265,7 @@ class PersonaRole:
         P1 监督者：整条 dispatch 记一条执行轨迹（trace_id=session_id），
         任何路径结束都标记轨迹完成（finally 保证）。
 
-        N33 ACI 预判注入：``aci_context`` 为路由前预取的上下文注入块
+        N33 ACI 预判注入：``aci_context`` 为路由前预取的上下文块
         （memory + wiki 命中），非空时前置到任务文本，agent 首轮直接
         带着相关背景开工。
 
@@ -268,14 +277,19 @@ class PersonaRole:
             session_id: 会话 ID，用于 LangGraph checkpointer 线程隔离
             aci_context: ACI 预判注入块（空串则不注入）
             resume: 是否为断点续跑（复用上次 plan 与已完成子任务）
+            on_progress: per-call 进度回调（SSE 用），协程局部覆盖实例级
+                ``self.on_progress``；多会话并发时各自隔离，不互相串扰。
 
         Returns:
             人设包装后的回复字符串
         """
+        token = _progress_ctx.set(on_progress) if on_progress is not None else None
         self._begin_trace(session_id)
         try:
             return await self._dispatch_inner(task, session_id, aci_context, resume)
         finally:
+            if token is not None:
+                _progress_ctx.reset(token)
             self._finish_trace(session_id)
 
     async def _dispatch_inner(
@@ -914,11 +928,15 @@ class PersonaRole:
         return decision
 
     def _emit_progress(self, event: dict[str, Any]) -> None:
-        """进度上报；回调异常不阻断执行。"""
-        if self.on_progress is None:
+        """进度上报；回调异常不阻断执行。
+
+        per-call 回调（SSE，协程局部）优先，其次实例级 ``self.on_progress``。
+        """
+        cb = _progress_ctx.get() or self.on_progress
+        if cb is None:
             return
         try:
-            self.on_progress(event)
+            cb(event)
         except Exception:  # noqa: BLE001, S110 - 进度上报是旁路
             pass
 
