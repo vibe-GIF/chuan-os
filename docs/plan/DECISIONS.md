@@ -723,3 +723,14 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: 不做本地 embedding 本身（那是触发后才评估的后续节点）；不做 faiss 建库/检索（非本节点范围）；不自动记录漏召回（需人工/业务侧明确调用 `record_missed_case` 或未来接入）；阈值不动态自调（保持显式常量便于审查）。
 
 **落地记录（已完成，2026-08-24，N55）**: `skills/handlers/rag_gate.py`（`_count_md`/`_resolve_external_vaults`/`_cases_path`/`_count_cases`/`record_missed_case`/`rag_gate`）+ `skills/rag_gate.yaml`（type handler，触发词：向量评估/RAG 评估/上向量/库多大/漏召回/faiss）。测试：`tests/test_rag_gate.py` 11 例（skill 注册/触发词/空库未触发/小库未触发/规模达标无案例待触发/有案例触发/外接库并入合计/漏召回案例追加计数/缺失目录降级/默认库不抛）。验收：11 passed ✓；真实默认库跑通返回可读报告（当前规模未达阈值 → 未触发，继续 FTS5）。
+
+## ADR-051: 与 deepseek-harness 正式版的融合策略（暂缓，等正式版）
+
+**决策**: 不与 dsh（DeepSeek Harness 开发者预览版，2026-08-13 开源，MIT/TypeScript/Cordis 插件内核）做深度集成。保留三条候选路径，**当前决议：先不执行，等 dsh 正式版发布后再评估路径 B**：
+- **路径 A**（dsh 进 chuan 委派名单）：沿用 `agents/` 注册机制新建 `agents/dsh/`（同 claude_code/opencode 款式），即可 `/bg dsh <任务>` 委派；
+- **路径 B**（chuan 能力暴露给 dsh）：把 chuan-os FastAPI 网关（`/api/chat`+`/health`）与 vault MCP server 包装成 Cordis 插件（TypeScript），dsh 模型可调用幕僚长岗位/记忆/wiki/黑板；
+- **路径 C**（dsh 做运行时底座、chuan 做业务编排）：等正式版 API 稳定后再评估，深度集成需重写适配层。
+
+**理由**: dsh 处于 developer preview，官方明示未来有破坏性变更，现在深度集成（B/C）等于重写两遍；路径 A 低成本可逆但需先安装 dsh 才有效，故一并暂缓。对齐 chuan-os「编排层不重写框架」定位（ADR-007），融合只走配置层 + HTTP/MCP 对接，不把 dsh 源码拉进 chuan-os。
+
+**触发条件**: dsh 正式版（API 稳定）发布 → 评估路径 B（把幕僚长包装成 dsh 插件）；路径 A 可随时提前落地（只需 dsh 安装可用）。
