@@ -1,0 +1,9 @@
+# 示例外来 agent
+# 形态同 personas/*.yaml，放 agents/example/ 下作为「纳入班底」的模板
+name: example
+display_name: 示例外来Agent
+description: 从 GitHub 下载、纳入班底的示例角色
+brain: cloud_general
+tools: []
+skills: []
+external: true

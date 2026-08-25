@@ -1,0 +1,22 @@
+# Bash 命令执行
+name: bash
+description: 执行 bash 命令，支持管道、重定向、环境变量。用于文件操作、git 命令、包管理、构建、测试等。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["运行命令", "执行命令", "run", "bash", "shell"]
+
+# 调用的本地 handler（绕过 MCP，直接跑 Python）
+handler:
+  module: handlers.bash_safe
+  function: run_bash
+
+# 参数映射
+params:
+  command:
+    from: user_input
+    required: true
+  timeout:
+    from: user_input
+    default: 30

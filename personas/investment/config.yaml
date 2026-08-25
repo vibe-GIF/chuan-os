@@ -1,0 +1,9 @@
+# 投资 —— 投资顾问（ADR-013 目录格式）
+name: investment
+display_name: 投资
+description: 资产配置、投研、市场跟踪、税务筹划建议
+role: investment
+# ADR-009：skill/MCP 全局默认挂载，此处只做减法
+deny:
+  - code_execution
+  - opencode

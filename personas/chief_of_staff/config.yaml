@@ -1,0 +1,54 @@
+# 幕僚长 —— 总调度入口（ADR-013 目录格式）
+name: chief_of_staff
+display_name: 幕僚长
+description: 总调度入口，所有用户意图先过此处
+role: chief_of_staff
+
+# 路由策略
+routing:
+  # 显式锁定 > 关键词计分 > 本体 > 兜底
+  explicit_lock:
+    trigger: ["幕僚长", "切到", "锁定"]
+  keyword_scoring:
+    lawyer: ["合同", "法律", "诉讼", "律师"]
+    programmer: ["代码", "编程", "bug", "跑一下", "读文件", "文档", "readme", "查看", "写", "改"]
+    prime_agent: ["prime agent", "prime", "深度编程", "复杂重构", "长时间任务"]
+    pi: ["pi", "pi agent"]
+    claude_code: ["claude", "claude code", "anthropic"]
+    opencode: ["opencode", "open code"]
+    social_media: ["发推", "小红书", "自媒体", "发文"]
+    companion: ["陪聊", "聊聊", "无聊"]
+    secretary: ["日程", "邮件", "行程", "安排"]
+    housekeeper: ["检查", "维护", "清理", "管家", "天气", "气温", "下雨", "温度", "湿度", "预报"]
+    researcher: ["研究", "调研", "查资料", "深度"]
+    investment: ["投资", "股票", "理财", "基金"]
+    bodyguard: ["安全", "保镖", "防护", "风险"]
+    freelance_agent: ["接单", "报价", "项目", "接活"]
+    school_agent: ["学习", "辅导", "答疑", "教学"]
+    social_agent: ["社交", "关系", "应酬", "聚会"]
+  fallback: self  # 兜底自己处理
+
+# 可调用的角色（路由目标）
+can_dispatch_to:
+  - lawyer
+  - programmer
+  - prime_agent
+  - pi
+  - claude_code
+  - opencode
+  - social_media
+  - companion
+  - freelance_agent
+  - school_agent
+  - social_agent
+  - social_learning
+  - secretary
+  - housekeeper
+  - researcher
+  - investment
+  - bodyguard
+
+# 工具权限
+tools:
+  - filesystem
+  - memory

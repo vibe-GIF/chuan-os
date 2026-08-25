@@ -1,0 +1,19 @@
+# SSH 状态
+name: ssh_status
+description: 查看 SSH 状态（已配置主机、known_hosts、活跃连接）。问 SSH 状态、已配主机、ssh 连接时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["ssh 状态", "ssh状态", "ssh 连接", "ssh连接", "ssh 链接", "已配主机", "ssh 主机"]
+
+# 调用的本地 handler（确定性采集，不依赖 LLM）
+handler:
+  module: handlers.ssh_status
+  function: ssh_status
+
+# 参数映射
+params:
+  host:
+    from: user_input
+    required: false

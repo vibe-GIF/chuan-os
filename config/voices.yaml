@@ -1,0 +1,22 @@
+# 角色 → TTS 音色映射（edge-tts 中文音色）
+# 借鉴 assistant-x-openclaw 的「每角色独立声音」设计。
+# 音色列表: https://learn.microsoft.com/azure/ai-services/speech-service/language-support
+# 未列出的角色用 default。
+
+default: zh-CN-XiaoxiaoNeural   # 晓晓（女·温暖）兜底
+
+roles:
+  幕僚长: zh-CN-YunxiNeural      # 云希（男·沉稳明快）—— 总调度
+  管家: zh-CN-XiaoxiaoNeural     # 晓晓（女·亲和）—— 生活服务
+  秘书: zh-CN-XiaohanNeural      # 晓涵（女·干练）—— 日程事务
+  编程: zh-CN-YunjianNeural      # 云健（男·热血）—— 写代码
+  律师: zh-CN-YunyangNeural      # 云扬（男·播音腔）—— 严谨
+  投资: zh-CN-YunzeNeural        # 云泽（男·成熟）—— 理性
+  研究: zh-CN-YunyeNeural        # 云野（男·多面）—— 调研
+  新媒体: zh-CN-XiaomoNeural     # 晓墨（女·多风格）—— 创意
+  陪伴: zh-CN-XiaoyiNeural       # 晓伊（女·元气）—— 温暖
+  社交: zh-CN-XiaoqiuNeural      # 晓秋（女·知性）
+  社交学习: zh-CN-XiaoyiNeural
+  学习: zh-CN-XiaoxuanNeural     # 晓萱（女·清晰）—— 讲解
+  保镖: zh-CN-YunfengNeural      # 云丰（男·浑厚）—— 安全
+  自由职业: zh-CN-YunyeNeural

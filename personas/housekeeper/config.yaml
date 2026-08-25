@@ -1,0 +1,9 @@
+# 管家 —— 生活与系统自运维（ADR-013 目录格式）
+name: housekeeper
+display_name: 管家
+description: 生活事务统筹、系统自运维、定时任务与主动预警
+role: housekeeper
+# ADR-009：skill/MCP 全局默认挂载，此处只做减法（不写就拥有全部）
+deny:
+  - code_execution   # 管家管运维不写码，编码交给 programmer
+  - opencode

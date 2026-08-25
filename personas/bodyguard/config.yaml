@@ -1,0 +1,9 @@
+# 保镖 —— 安全闸门（ADR-013 目录格式）
+name: bodyguard
+display_name: 保镖
+description: 数字与物理安全、权限审查、风险拦截
+role: security
+# ADR-009：skill/MCP 全局默认挂载，此处只做减法
+deny:
+  - code_execution   # 保镖负责把关，不自己写码
+  - opencode

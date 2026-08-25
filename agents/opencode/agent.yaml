@@ -1,0 +1,16 @@
+# OpenCode —— 通用 AI 编程助手 CLI
+# 已安装于 C:\Users\JYQ74\.opencode\bin\opencode.exe
+name: opencode
+display_name: OpenCode
+description: 通用 AI 编程助手。可执行代码编写、调试、重构、代码审查、文件操作等任务
+external: true
+
+# 通过 opencode run 非交互模式执行任务
+command:
+  - powershell
+  - -NoProfile
+  - -ExecutionPolicy
+  - Bypass
+  - -File
+  - run_opencode.ps1
+timeout_seconds: 600

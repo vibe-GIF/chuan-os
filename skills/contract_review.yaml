@@ -1,0 +1,19 @@
+# 示例技能：审合同
+name: contract_review
+description: 审查合同条款，识别风险点
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["审合同", "合同审查", "条款", "合同风险"]
+
+# 调用的本地 handler（绕过 MCP，直接跑 Python）
+handler:
+  module: handlers.legal_scan
+  function: scan_contract
+
+# 参数映射
+params:
+  file_path:
+    from: user_input
+    required: true

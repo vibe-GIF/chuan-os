@@ -1,0 +1,22 @@
+# 网页正文阅读
+name: read_webpage
+description: 抓取指定网址的网页正文（去掉导航广告脚本）。用于深读搜索结果中的链接、阅读在线文档/文章。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["网页", "链接", "打开网址", "读取页面"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.web_search
+  function: read_webpage
+
+# 参数映射
+params:
+  url:
+    from: user_input
+    required: true
+  max_chars:
+    from: user_input
+    default: 4000

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"/>
+<meta name="theme-color" content="#05070d"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>川流 HUD</title>
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="icon" href="icon.svg" type="image/svg+xml"/>
+<link rel="apple-touch-icon" href="icon.svg"/>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">川流 <span class="sub">HUD</span></div>
+    <div class="status"><span id="connDot" class="dot"></span><span id="connText">连接中…</span></div>
+    <select id="agentSel" title="切换角色">
+      <option value="jarvis">Jarvis</option>
+      <option value="lin-meimei">Lin Meimei</option>
+      <option value="xiao-nu">小奴</option>
+    </select>
+  </header>
+
+  <section id="hud" class="hud">
+    <div id="orb" class="orb idle"><span id="effectLabel">idle</span></div>
+  </section>
+
+  <section class="terminal">
+    <div id="log" class="log"><div class="line hint">正在连接川流…</div></div>
+  </section>
+
+  <footer class="composer">
+    <input id="msg" type="text" placeholder="给川流发消息…" autocomplete="off" enterkeyhint="send"/>
+    <button id="send">发送</button>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

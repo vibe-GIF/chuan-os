@@ -1,0 +1,8 @@
+# 社交 —— 社交助理（ADR-013 目录格式）
+name: social_agent
+display_name: 社交
+description: 社交关系管理、消息起草
+role: social
+
+tools:
+  - memory

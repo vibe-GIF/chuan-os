@@ -1,0 +1,69 @@
+[project]
+name = "chuan-os"
+version = "0.1.0"
+description = "川流 - 本地多智能体 AI 班底"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "待定"}
+
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-mcp-adapters>=0.1.0",
+    "langchain-openai>=0.2.0",
+    "langchain-community>=0.3.0",
+    "langchain-ollama>=0.2.0",
+    "langgraph-supervisor>=0.0.14",
+    "langgraph-checkpoint>=2.0.0",
+    "langgraph-checkpoint-sqlite>=3.0.0",
+    "aiosqlite>=0.20.0",
+    "pyyaml>=6.0",
+    "faiss-cpu>=1.8.0",
+    "openai>=1.50.0",
+    "ollama>=0.3.0",
+    "redis>=5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6.0",
+]
+voice = [
+    "faster-whisper>=1.0.0",
+    "onnxruntime>=1.17.0",
+    "edge-tts>=6.1.0",
+    "sounddevice>=0.4.0",
+    "soundfile>=0.12.0",
+    "numpy>=1.24.0",
+    "openwakeword>=0.6.0",
+]
+search = [
+    "ddgs>=9.0",
+    "lxml>=5.0",
+    "requests>=2.31",
+]
+tui = [
+    "textual>=0.60.0",
+]
+
+[project.scripts]
+chuan = "chuan.main:cli"
+chuan-voice = "chuan.voice.main:run_voice_mode"
+chuan-tui = "chuan.tui.app:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["chuan*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

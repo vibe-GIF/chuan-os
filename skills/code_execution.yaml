@@ -1,0 +1,20 @@
+# 示例技能：执行代码
+name: code_execution
+description: 执行用户提供的代码片段
+type: mcp
+
+# 触发条件
+trigger:
+  keywords: ["跑一下", "执行代码", "run code"]
+
+# 调用的 MCP Server
+mcp_server: opencode
+
+# 参数映射
+params:
+  code:
+    from: user_input
+    required: true
+  language:
+    from: user_input
+    default: python

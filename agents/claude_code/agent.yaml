@@ -1,0 +1,16 @@
+# Claude Code —— Anthropic 官方 CLI 编程 agent
+# 安装: npm install -g @anthropic-ai/claude-code
+name: claude_code
+display_name: Claude Code
+description: Anthropic 官方 CLI 编程 agent。可执行代码编写、调试、重构、代码审查等任务
+external: true
+
+# 通过 stdin/stdout 传递任务，--print 非交互模式
+command:
+  - powershell
+  - -NoProfile
+  - -ExecutionPolicy
+  - Bypass
+  - -File
+  - run_claude_code.ps1
+timeout_seconds: 600

@@ -1,0 +1,9 @@
+# 新媒体 —— 自媒体运营（ADR-013 目录格式）
+name: social_media
+display_name: 新媒体
+description: 内容创作、发推、小红书等自媒体运营
+role: social_media
+
+tools:
+  - memory
+  - filesystem

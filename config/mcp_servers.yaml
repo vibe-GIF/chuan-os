@@ -1,0 +1,21 @@
+# MCP Server 注册表
+# 每个 server 定义启动命令和权限标签
+
+servers:
+  filesystem:
+    command: "python"
+    args: ["mcp_servers/filesystem_server.py"]
+    permissions: ["read", "write"]
+    description: "文件系统 MCP"
+
+  weather:
+    command: "python"
+    args: ["mcp_servers/weather_server.py"]
+    permissions: ["read"]
+    description: "天气查询 MCP"
+
+  opencode:
+    command: "python"
+    args: ["mcp_servers/opencode_wrapper.py"]
+    permissions: ["execute"]
+    description: "OpenCode MCP 包装"

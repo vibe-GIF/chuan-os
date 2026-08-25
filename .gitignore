@@ -1,0 +1,61 @@
+# chuan-os .gitignore
+
+# 敏感凭证
+config/secrets.yaml
+
+# 本地覆盖配置
+config/local.yaml
+
+# 向量库文件
+memory_store/
+
+# RAG 本地语料
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Obsidian
+.obsidian/
+
+# Flutter（本地安装的 SDK 与构建产物）
+.flutter_sdk/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+hud_overlay/windows/flutter/ephemeral/
+
+# 运行时产物（日志 / 临时文件）
+*.log
+.voice*.log
+mic_check.png
+.workbuddy-ai/
+
+# Flutter 构建产物（ephemeral / 插件符号链接）
+hud_overlay/**/ephemeral/
+hud_overlay/linux/flutter/ephemeral/
+hud_overlay/macos/Flutter/ephemeral/
+hud_overlay/**/.plugin_symlinks/
+_inspect_sessions.py

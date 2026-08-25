@@ -1,0 +1,11 @@
+# 律师 —— 法律顾问（ADR-013 目录格式）
+name: lawyer
+display_name: 律师
+description: 合同审查、法律咨询、风险提示
+role: lawyer
+
+tools:
+  - filesystem
+  - memory
+skills:
+  - contract_review

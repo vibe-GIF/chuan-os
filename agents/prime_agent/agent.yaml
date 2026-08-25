@@ -1,0 +1,17 @@
+# Prime Agent —— 自改进 RLM 编码与研究 agent
+# 基于 PrimeIntellect-ai/prime-agent，可执行复杂编程、研究与长时间自治任务
+name: prime_agent
+display_name: Prime Agent
+description: 自改进 RLM 编码与研究 agent。可执行复杂编程、代码审查、深度研究、长时间自治任务
+external: true
+
+# ExternalAgentLoader 将此命令编译为名为 prime_agent 的 LangGraph worker。
+# run_prime_agent.ps1 负责检查安装并将任务通过 stdin/stdout 传递。
+command:
+  - powershell
+  - -NoProfile
+  - -ExecutionPolicy
+  - Bypass
+  - -File
+  - run_prime_agent.ps1
+timeout_seconds: 600

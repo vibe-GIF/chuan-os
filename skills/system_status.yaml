@@ -1,0 +1,19 @@
+# 本机系统实时状态
+name: system_status
+description: 采集本机系统实时状态（CPU / 内存 / 磁盘占用 / 主机信息）。问磁盘、内存、CPU、系统负载、硬盘占用时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["磁盘", "硬盘", "内存", "cpu", "系统状态", "系统负载", "占用", "计算机状态", "看下磁盘"]
+
+# 调用的本地 handler（确定性采集，不依赖 LLM）
+handler:
+  module: handlers.system_status
+  function: system_status
+
+# 参数映射
+params:
+  paths:
+    from: user_input
+    required: false

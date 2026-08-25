@@ -1,0 +1,22 @@
+# 联网搜索
+name: web_search
+description: 联网搜索实时信息（新闻、市场、法规、技术资料等）。中文问题返回基于搜索结果的综合答复。调研、查资料、查法规、查竞品必用此工具。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["搜索", "查一下", "调研", "竞品", "法规", "新闻", "最新", "联网"]
+
+# 调用的本地 handler（百炼联网搜索为主，DuckDuckGo 免费兜底）
+handler:
+  module: handlers.web_search
+  function: web_search
+
+# 参数映射
+params:
+  query:
+    from: user_input
+    required: true
+  max_results:
+    from: user_input
+    default: 5

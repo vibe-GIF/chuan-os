@@ -1,0 +1,17 @@
+# 示例技能：查天气
+name: weather_check
+description: 查询指定城市的天气
+type: mcp
+
+# 触发条件
+trigger:
+  keywords: ["天气", "weather", "几度", "下雨"]
+
+# 调用的 MCP Server
+mcp_server: weather
+
+# 参数映射
+params:
+  city:
+    from: user_input    # 从用户输入提取
+    required: true

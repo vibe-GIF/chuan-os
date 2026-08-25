@@ -1,0 +1,8 @@
+# 社交学习 —— 从互动中学习偏好（ADR-013 目录格式）
+name: social_learning
+display_name: 社交学习
+description: 从社交互动中学习偏好与模式
+role: social_learning
+
+tools:
+  - memory

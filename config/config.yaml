@@ -1,0 +1,202 @@
+# chuan-os 全局配置
+# 大脑路由、唤醒词、全局开关
+
+# === L1 大脑：三档分级 ===
+brains:
+  cloud_general:
+    # 通用默认脑——智谱 GLM-4-Flash（免费档，不占本机 GPU）
+    provider: openai
+    model: "glm-4-flash"
+    base_url: "https://open.bigmodel.cn/api/paas/v4/"
+    api_key_env: "ZHIPU_API_KEY"
+    api_key_secret: "zhipu_api_key"
+
+  cloud_coding:
+    # 编码特化脑——智谱 GLM-4-Plus
+    provider: openai
+    model: "glm-4-plus"
+    base_url: "https://open.bigmodel.cn/api/paas/v4/"
+    api_key_env: "ZHIPU_API_KEY"
+    api_key_secret: "zhipu_api_key"
+
+  bailian_flash:
+    # 阿里云百炼 qwen-flash（极低价，联网搜索质量好，工具调用稳）
+    # persona 想用就在自己的 yaml 里写 brain: bailian_flash
+    provider: openai
+    model: "qwen-flash"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "BAILIAN_API_KEY"
+    api_key_secret: "bailian_api_key"
+
+  bailian_pro:
+    # 阿里云百炼 qwen-plus（强推理档，按 token 计费）
+    provider: openai
+    model: "qwen-plus"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "BAILIAN_API_KEY"
+    api_key_secret: "bailian_api_key"
+
+  local:
+    # 本地 Ollama（默认脑，数据不出机）
+    provider: ollama
+    model: "qwen2.5:7b"
+    base_url: "http://localhost:11434"
+
+# === 路由策略 ===
+routing:
+  # 优先级：显式锁定 > 关键词计分 > 本体 > 兜底
+  # 默认百炼 qwen-flash（极低价但工具调用稳）；想省钱切回 cloud_general（智谱免费档）
+  default_brain: bailian_flash
+  fallback_brain: cloud_general
+
+# === N40 岗位 agent 实例：按任务复杂度选实例（声明式）===
+# 岗位在 config.yaml 声明实例（brain 用哪个大脑档位 / tools 工具子集 / system_prompt
+# 系统提示词），并按复杂度档位（simple/medium/heavy）映射到实例 id。
+# - tiers: 复杂度档位 → 实例 id；roles.<name>.tiers 可角色级覆盖
+# - instances: 实例声明（缺省 brain=角色大脑 / tools=persona 全集 / system_prompt=人设）
+# 未配置/全默认时所有任务走默认实例（零开销旁路，向后兼容 1:1）。
+# 复杂度分级为纯规则（heavy=命中代码/开发/调试等标记；medium=会走规划；其余 simple）。
+# - pool（N41 动态实例池，自动扩缩容）:
+#   min_instances: 缩容时保留的非默认实例下限（默认实例是岗位身份，永不回收）
+#   max_instances: 扩容上限（并行 worker 最多建到 N 个实例）
+#   idle_ttl:      空闲超过该秒数 → 自动缩容回收（再次需要时按需重建，扩容闭环）
+role_instances:
+  tiers:
+    simple: default
+    medium: default
+    heavy: default
+  instances:
+    # coding:                # 重型任务实例：更强模型 + 编码工具
+    #   brain: cloud_coding
+    #   tools: [bash, code_execution]
+    #   system_prompt: "你是资深工程师，负责实现、调试与修复。"
+  roles:
+    # programmer:           # 角色级覆盖：programmer 的重型任务用 coding 实例
+    #   tiers:
+    #     heavy: coding
+  pool:
+    min_instances: 1
+    max_instances: 3
+    idle_ttl: 300
+
+# === L5 接入 ===
+wakeword:
+  # OpenWakeWord 唤醒词（本地离线，ONNX 模型）
+  # enabled: true 时语音进入免提模式——常驻监听，命中唤醒词即自动对话，无需按 Enter。
+  # 已部署内置英文模型 hey_jarvis.onnx（说 "hey jarvis" 唤醒）。
+  # 中文词（小川小川）需自训模型，放入 ~/.openwakeword/models/{词}.onnx 后即可使用。
+  enabled: true
+  phrase: "小川小川"
+  # 唤醒命中后的自动应答（随机挑一条，贾维斯管家风）
+  wake_lines:
+    - "在的，先生。请讲。"
+    - "随时待命，先生。"
+    - "系统已就绪，请吩咐。"
+    - "我在听，先生。"
+    - "收到。有什么可以帮您？"
+    - "为您效劳，先生。"
+  # 应答专属音色（edge-tts 男声）+ 加速 + 金属滤镜（需 ffmpeg，缺失自动回退原声）
+  wake_voice: "zh-CN-YunjianNeural"
+
+# === L4 记忆 ===
+memory:
+  # Obsidian vault 路径
+  vault_path: ""        # 留空则用项目内默认
+  # 外接只读库（只读接入 FTS 索引，独立 vault key，绝不写回）
+  external_vaults:
+    - name: "obsidian"
+      path: "D:/Resources/Obsidian"
+  vector_store: "memory_store/"
+  rag_corpus: "data/"
+  # N43 语义检索（sqlite-vec，旁路增强）：FTS5 词法 + 向量语义双路合并召回。
+  # enabled: false 默认关闭——零额外依赖/零成本，纯词法 FTS5 行为不变（测试封闭）；
+  # 置 true 后走 OpenAI 兼容 embeddings API（zhipu/bailian 皆可），key 解析对齐 brains
+  # （先环境变量 api_key_env，再 secrets.yaml 的 api_key_secret 字段）。
+  # 语义是旁路：嵌入/建表/检索任何失败都静默降级回 FTS5，绝不阻断主流程。
+  semantic:
+    enabled: false
+    model: "text-embedding-v3"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "BAILIAN_API_KEY"
+    api_key_secret: "bailian_api_key"
+    dim: 1024
+    weight: 2.0
+
+# === N44 Redis TTL 缓存旁路（cache-aside 加速）===
+# 给外部 API 调用（天气/搜索）加 TTL 缓存：命中免外呼、避开外部不稳定。
+# enabled: false 默认关闭——零依赖零成本（no-op），测试封闭；
+# 置 true 需本机有 Redis（如 `docker run -d -p 6379:6379 redis`）。
+# Redis 不可达/读写失败 → 自动降级进程内内存 TTL 缓存，不抛错、不阻断主流程。
+# 缓存是「能删能重建的加速层」，绝不承担不可丢失的状态（真相仍在 SQLite/Markdown）。
+cache:
+  enabled: true
+  # 本机 WSL 里的真实 redis-server（172.30.5.62）；WSL 重启后 IP 可能变，用 `wsl hostname -I` 取新值
+  host: "172.30.5.62"
+  port: 6379
+  db: 0
+  default_ttl: 600
+  prefix: "chuan:"
+
+# === N45 任务队列 + 事件总线（Redis Streams + Pub/Sub）===
+# 后台委派/例行任务加可靠队列（Redis Streams 消费者组，重启不丢、崩溃可 recover）
+# + 岗位/任务间事件发布订阅（Redis Pub/Sub，事件驱动协作；本进程订阅者内存同步）。
+# enabled: false 默认关闭——零依赖零成本（no-op），测试封闭；
+# 置 true 需本机有 Redis（与 cache 段同源，可复用同一连接参数；不可达自动降级内存）。
+# 队列/总线是「能删能重建的协调层」，绝不承担不可丢失的状态（真相仍在 SQLite/Markdown）。
+bus:
+  enabled: true
+  host: "172.30.5.62"
+  port: 6379
+  db: 0
+  prefix: "chuan:"
+  queue:
+    group: "chuan-workers"   # Redis Streams 消费者组名
+    max_retries: 3           # 任务处理失败最多重试次数（超过即丢弃）
+
+# === 外来 agent（纳入班底）===
+external_agents:
+  # 外来 agent 放在 agents/ 下，每个一个子文件夹（含 agent.yaml）
+  # 必须显式列在 enabled 才会被幕僚长识别 —— 不是自动发现
+  path: "agents/"
+  enabled: [pi, prime_agent, claude_code, opencode]
+  # 共享黑板命名空间隔离：shared/external/<name>/
+
+# === 微信接入（N19 / ADR-015）===
+# 企业微信自建应用，用于远程操控电脑：微信发消息 → 幕僚长路由 → 回发。
+# 默认关闭；enabled 且填齐 corp_id/corp_secret/agent_id 才会真正收发。
+wechat:
+  enabled: false
+  backend: wecom        # 企业微信自建应用
+  corp_id: ""           # 企业 ID（企业微信后台「我的企业」）
+  corp_secret: ""       # 自建应用 Secret
+  agent_id: ""          # 自建应用 AgentId
+
+# === HUD 悬浮层（N16 / Jarvis 全息人体模型）===
+# 真实对话经 TCP 推送给 Flutter 透明悬浮层（hud_overlay/assistant_overlay.exe）。
+# 前端未启动时发送自动静默降级，不阻断主流程。
+# scene: true 时启用 SCENE 协议 v1（hello 握手 + scene 全量 + patch 增量，
+#        与 legacy 命令双发，供手机 PWA 复用同一协议）；false 退回纯 legacy。
+hud:
+  enabled: true
+  host: "127.0.0.1"
+  port: 17889
+  scene: true
+
+# === N8/N28 管家主动触发 + 例行自动化 ===
+# 默认关闭；启用后由 housekeeper worker 定期执行下列任务，结果进入提醒队列。
+# N28 例行任务也可运行时用 /routine add <name> <调度> <任务> 管理（持久化到 data/routines.json）：
+#   /routine add deploy_report fri@17:30 帮我生成部署周报 --wiki      # 每周五 17:30，结果归档 wiki
+#   /routine add heartbeat every@3600 报个平安                         # 每 3600 秒
+# N29 失败重试：加 --retries N 开启瞬态失败退避重试（指数退避 60s→120s…封顶 30min；0=关闭）：
+#   /routine add deploy_report fri@17:30 帮我生成部署周报 --wiki --retries 2
+scheduler:
+  enabled: false
+  poll_interval_seconds: 1
+  jobs: []
+  # - name: daily_brief
+  #   agent: housekeeper
+  #   interval_seconds: 86400
+  #   message: "整理今日待办、日程和需要主动提醒的事项。"
+  #   run_immediately: false
+
+

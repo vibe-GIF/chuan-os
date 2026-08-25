@@ -1,0 +1,16 @@
+# Pi coding agent —— 作为幕僚长可直接路由的外来 worker。
+# 安装: npm install -g @earendil-works/pi-coding-agent
+name: pi
+display_name: Pi 编程代理
+description: 基于 @earendil-works/pi-coding-agent 的编码代理。可执行代码分析、修改、调试、重构等任务
+external: true
+
+# 通过 stdin/stdout 传递任务，--print 非交互模式
+command:
+  - powershell
+  - -NoProfile
+  - -ExecutionPolicy
+  - Bypass
+  - -File
+  - run_pi.ps1
+timeout_seconds: 600

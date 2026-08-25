@@ -1,0 +1,19 @@
+# Git 仓库状态
+name: git_status
+description: 采集指定目录（默认项目根）的 git 仓库状态：分支、改动文件、未跟踪、stash、最近提交、是否领先远端。问 git 状态、仓库状态、分支、有没改动时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["git 状态", "git状态", "仓库状态", "分支", "有没有改动", "改了什么", "提交记录"]
+
+# 调用的本地 handler（确定性采集，只读 git 命令）
+handler:
+  module: handlers.git_status
+  function: git_status
+
+# 参数映射
+params:
+  repo:
+    from: user_input
+    required: false

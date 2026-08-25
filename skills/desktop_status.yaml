@@ -1,0 +1,13 @@
+# 桌面/窗口环境状态
+name: desktop_status
+description: 采集桌面环境状态（屏幕分辨率、当前活动窗口标题）。问屏幕、分辨率、正在用什么窗口、桌面状态时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["桌面状态", "屏幕", "分辨率", "活动窗口", "正在用什么", "当前窗口"]
+
+# 调用的本地 handler（确定性采集，不依赖 LLM）
+handler:
+  module: handlers.desktop_status
+  function: desktop_status
