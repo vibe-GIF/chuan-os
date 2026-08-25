@@ -19,3 +19,9 @@ servers:
     args: ["mcp_servers/opencode_wrapper.py"]
     permissions: ["execute"]
     description: "OpenCode MCP 包装"
+
+  vault:
+    command: "python"
+    args: ["mcp_servers/vault_server.py"]
+    permissions: ["read", "write"]
+    description: "共享黑板 MCP（外来 agent 检索/写入 data/teams/ 黑板）"

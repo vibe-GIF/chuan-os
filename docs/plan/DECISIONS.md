@@ -625,6 +625,25 @@ blackboard/
 
 **落地记录（已完成，2026-08-24，N48）**: `chuan/gateway/http_gateway.py`（`HttpGateway`：config 解析/静态服务/`/ws` SCENE/`/api/message` `/api/hud` `/api/health`/TLS 静默降级/`broadcast` 线程安全入口/`attach` 挂 supervisor+hud/`main`）+ `web/`（`index.html`/`style.css`/`app.js`/`manifest.webmanifest`/`sw.js`/`icon.svg`）+ `scripts/gen_https_cert.py` + `config/config.yaml`（`http:` 段，仅新增该段）+ `tests/test_http_gateway.py`（13 例：配置/静态/health/message 路由与回复/WS 握手 hello+scene/WS message 帧派发广播/hud 命令广播/路径穿越守卫/TLS 缺失降级）。测试：`test_http_gateway.py` 13 passed（+`test_hud.py` 隔离复跑通过——hud 网络用例仍是有文档记录的历史 flaky）。端到端实测（.venv，真实自签证书）：`HTTPS / -> 200 text/html 含川流` ✓、`/manifest.webmanifest -> application/manifest+json` ✓、`/api/health -> {ok,tls:true,...}` ✓、`WSS /ws -> hello{client:chuan-os,caps:scene} + scene{version:1}` ✓。验收路径：手机同局域网 `https://<电脑IP>:8443/` → PWA 可安装（SW 注册 + manifest）→ 输入消息经 `/api/message`（或 WS `message:`）路由 → 手机实时收 SCENE patch 显示 HUD 状态/AI 回复；`POST /api/hud` 显式下发 HUD 命令。
 
+**验收记录（2026-08-24，多窗口并行产物全栈复核）**: 全量回归（当时排除在制品的 `test_vault_server.py`）= **626 passed、2 skipped**；唯一失败 `test_hud.py` 网络用例为历史 flaky——隔离复跑通过、复跑又换另一条失败（时序/端口污染，hud.py 自初始提交未改动，非并行窗口回归，与 ADR-042/043 既有记录一致）。实跑验收：
+- **N46 资源感知**：`system_status`（Windows 11 · 16 核 · 内存 25.4/31.4GB · 磁盘 C/D）✓、`desktop_status`（1536x864 · 活动窗口）✓、`ssh_status`（known_hosts 8.138.91.61 · 无活跃连接）✓、`git_status`（main@9d0a17b · 工作区 3改3新）✓；
+- **N47 FastAPI 网关**：`GET /health` → `{status: ok, awake, brain_ok(bailian_flash), 13 workers, mcp_connected 4, memory_ready, pools 生效, bus/queue enabled(Redis 不可达→memory 降级)}` ✓；`POST /api/chat {"你好","session_id":"acceptance_n47"}` → 幕僚长真实答复 `route: chief_of_staff` ✓（启动含 MCP 连接约 1 分钟）；
+- **N48 HTTPS+PWA**：真实自签证书在跑 TLS（纯 HTTP 探被拒，证书确实生效）；`GET /` → 200 text/html（PWA 壳含 manifest/sw.js 引用）✓、`/manifest.webmanifest` → 200 `application/manifest+json` ✓、`/sw.js` `/app.js` → 200 ✓、`/api/health` → `{ok:true, tls:true, supervisor:false, hud:false}`（无 `--supervisor` 旁路正确降级）✓。
+
 ### 文档口径修正（N48 顺手，预留未实现）
 
 ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现——纠正口径：**长期记忆的召回真相是 FTS5 词法**（N13 时代只有 FTS，N13 描述中的「+向量」系过度宣称，已改）；**向量语义召回唯一已落地路径是 N43 的 sqlite-vec 旁路**（ADR-038，嵌入云端、默认关闭）；**本地 `faiss` / `vector_store` / `rag_corpus` 保持「预留未实现」**——没有任何代码在消费 `memory.vector_store` / `memory.rag_corpus`，也未被 N43 使用（N43 用 `memory_fts.db` 里的 vec0 表，与上述字段无关）。
+
+
+## ADR-044: vault MCP server（外来 agent 经 MCP 检索/写入共享黑板）
+
+**决策**: 新增 `mcp_servers/vault_server.py` + 注册进 `config/mcp_servers.yaml`，落地 ROADMAP P2 待办「vault MCP server：外来 agent 经 MCP 检索/写入共享黑板」。共享黑板真相落盘在 `data/teams/*.json`（N42 TeamStateWriter 同款），外来 agent（`agents/` 下 claude_code / opencode 等）是独立进程，故 MCP server 自包含可跑、不依赖 chuan 包启动（对齐 filesystem_server.py 模板）：
+- **三个工具**：`list_vaults()` 列出黑板/团队（名字/role/status/updated/条目数）；`search_vault(query, vault="", limit=10)` 检索黑板（role/task/subtasks/notes 关键词大小写不敏感匹配 + 命中处片段）；`write_vault(key, content, team="default")` 写入黑板（追加到 `notes` 列表，文件不存在则新建并补 `role/status/subtasks` 骨架，与既有 team_state 文档兼容不破坏结构）；
+- **自包含**：仅依赖 `mcp.server.fastmcp` + 标准库（json/os/re/pathlib/datetime），不 import chuan；黑板目录与项目根硬编码 `D:\Dev\Active\chuan-os`；
+- **写安全**：团队名白名单清洗（`[^A-Za-z0-9_\-:]` → `_`，空回退 `default`）+ realpath 前缀校验（限定 `data/teams/` 与 `data/memory/` 允许范围）双保险防路径穿越；原子落盘（临时文件 + `os.replace`）防半截 JSON 污染黑板。
+
+**理由**: P2 待办需要一条「外来 agent 经 MCP 检索/写入共享黑板」的通道——claude_code / opencode 等独立进程无法直接 import chuan，需经 stdio MCP 与黑板交互。直接读 `data/teams/*.json`（而非 import chuan 走 wiki.search）保证 server 自包含、启动零依赖、隔离 chuan 包故障；write 设计成追加式 `notes` 列表，与黑板「磁盘真相 + 审计」语义一致，不覆盖既有岗位任务记录。
+
+**反例**: 不 import chuan（外来 agent 独立进程，自包含优先，故障隔离）；不做用户/角色鉴权（本地单机 stdio server，权限边界由 MCP 客户端侧配置管理，对齐 filesystem_server 的权限标签模型）；不接 N24 Wiki 实体页改写/蒸馏（黑板是易变协作真相层，Wiki 是蒸馏知识层，二者分层，检索命中用关键词即可，不引 RAG 复杂度）。
+
+**落地记录（已完成，2026-08-24，N49）**: 新增 `mcp_servers/vault_server.py`（`list_vaults`/`search_vault`/`write_vault` + `_team_file` realpath 前缀校验 + `_safe_team_name` 白名单清洗 + `_save_doc` 原子落盘 + `_snippet` 命中片段）+ `config/mcp_servers.yaml` 追加 `vault` 段（`command: python` / `args: ["mcp_servers/vault_server.py"]` / `permissions: [read, write]` / description，未动其他 server 段）+ 测试 `tests/test_vault_server.py`（13 例：list 空提示/列黑板、write 新建/追加/空参数校验、search 命中 task/subtask/note/无命中提示/指定 vault 隔离/空查询、路径穿越清洗 + 分隔符清洗 + 工具注册三件套）。验收：`.venv` `from mcp.server.fastmcp import FastMCP` ✓；`python mcp_servers/vault_server.py` stdio 启动并响应 initialize（serverInfo=vault）✓；`pytest tests/test_vault_server.py` 13 passed ✓；全量 `pytest -q` 640 passed、2 skipped ✓（含本节点 13 例）。

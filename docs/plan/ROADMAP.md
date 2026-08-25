@@ -48,6 +48,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N46 本地资源感知采集器** | 系统/桌面/SSH/Git 状态确定性采集 handler skill（纯标准库 + ctypes，失败静默降级，ADR-041） | 资源感知 | ✅ |
 | **N47 HTTP API Gateway** | FastAPI 客户端/服务器解耦接入层：/health + /api/chat（ADR-042） | 架构升级 | ✅ |
 | **N48 局域网 HTTPS + 手机 PWA 接入** | HTTP/HTTPS 网关 + PWA（manifest/SW）+ SCENE WebSocket：手机同局域网 HTTPS 访问并下发/接收 HUD 命令 + 顺手修正文档口径（ADR-043） | 架构升级 | ✅ |
+| **N49 vault MCP server** | 外来 agent 经 MCP 检索/写入共享黑板：search_vault/write_vault/list_vaults 读写 data/teams/ 黑板（ADR-044） | 架构升级 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
 
@@ -149,6 +150,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 - **N39 已完成**：P2 岗位化 1:N 过渡·第三台阶（ADR-034，按实例配置工具/模型/记忆）落地。`chuan/role.py`（`RoleAgentConfig{tools,model,system_prompt,checkpointer}` dataclass + `spawn_agent(instance_id, ..., config=None, checkpointer=None)` 合并 config（旧关键字参数可覆盖）+ `_agent_configs` 记录实例配置供检视 + `_worker_config` 岗位级并行 worker 默认配置 + `_ensure_worker_instance` 尊重配置（无能力/失败回退默认实例））+ `chuan/persona_loader.py`（`birth(model/tools/system_prompt)` 覆盖参数——model 覆盖跳过 brain 解析、tools 覆盖**精确替换** persona 工具集（不再自动加 sub_agent 工具）、system_prompt 覆盖人设）+ `chuan/agent_pool.py`（`spawn_builtin` 加 `checkpointer` + `spawn_builtin_instance` 覆盖透传）。测试：`tests/test_role.py` 新增 3 例（spawn_agent 应用 config 工具/模型/记忆/旧参数覆盖 config/worker 尊重岗位配置）+ `tests/test_persona_loader.py` 新增 1 例（birth 覆盖模型/工具/提示词/checkpointer），全量 528 passed、2 skipped。
 - **N40 已完成**：P2 按任务复杂度选实例·声明式（ADR-035，config.yaml role_instances）落地。`chuan/role_config.py`（`RoleInstanceConfig{tiers,roles,instances}` + `load_role_instances(config_path, brains)` 解析器——`brain` 名用 brains registry 解析为模型（取不到保持 model=None）+ `tier_for(role)` 角色覆盖优先合并，缺段/缺文件/解析失败 → 全默认旁路）+ `chuan/role.py`（`PersonaRole(..., instance_config)` + `_classify_complexity`（纯规则：heavy=命中重型标记/medium=会规划/simple=其余）+ `_resolve_tier_instance` + `_ensure_configured_instance`（声明式实例经 spawn_builtin_instance 创建/复用，缺失/失败回退默认）+ dispatch 单 agent 路径按复杂度选实例）+ `chuan/gateway/agent_spawner.py`（从 sup.config_path+sup.brains 加载并注入所有岗位与幕僚长）+ `config/config.yaml`（`role_instances` 段，opt-in 示例：tiers/instances/roles）。测试：`tests/test_role_config.py` 新增 12 例（缺段/缺文件默认/解析 tiers+instances+roles/brain 解析/角色覆盖/未知 brain 回退/复杂度分级/选声明式实例/无配置回退/缺失实例回退/dispatch 重型用声明实例/simple 用默认/同 id 复用），全量 540 passed、2 skipped。
 - **N47 已完成**：HTTP API / FastAPI Gateway（ADR-042，客户端/服务器解耦接入层）落地。`chuan/gateway/api.py`（`create_app` 工厂 + lifespan 生命周期（复用 supervisor 或自动 wake_up/shutdown）+ `GET /health` 复用 Heartbeat + `POST /api/chat` 走 dispatch（session_id 隔离 + 可选 history + 可选 worker 直派）+ 从简鉴权（`CHUAN_API_TOKEN` 或 config `api.token`，未设默认放行）+ 模块级 `app` 供 uvicorn/`python -m chuan.gateway.api` 启动）。测试：`tests/test_api.py`（8 例：health ok/未唤醒 degraded/chat 返回 reply+route/worker 直派/空消息 422/未唤醒 503/token 鉴权/默认放行）。实测 uvicorn 验收：`/health` → `{"status":"ok","awake":true,...13 workers}` ✓；`/api/chat {"message":"你好","session_id":"api_acceptance"}` → 幕僚长真实答复 ✓。全量 624 passed、2 skipped。
+- **N49 已完成**：P2 vault MCP server（ADR-044）落地。`mcp_servers/vault_server.py`（FastMCP 自包含 stdio server，不依赖 chuan 包，对齐 filesystem_server）：`list_vaults` 列黑板/团队 + `search_vault` 检索（role/task/subtasks/notes 关键词命中 + 片段）+ `write_vault` 追加写入（不存在则新建，兼容既有 team_state 文档）；团队名白名单清洗 + realpath 前缀校验（限定 data/teams + data/memory）双保险防路径穿越 + 原子落盘；`config/mcp_servers.yaml` 追加 `vault` 段（未动其他 server 段）。测试：`tests/test_vault_server.py` 13 例（list/write/search/路径安全/工具注册），全量 640 passed、2 skipped。
 
 ## 已知遗留
 
@@ -207,6 +209,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 | **N38 岗位化 1:N·第二台阶** | 1:N 默认启用（ADR-033）：`AgentPool.spawn_builtin_instance`（`birth(force_rebirth=True)` 独立图）+ `_assign_wave_instances`（本波 ≥2 并行 auto 子任务各配独立 worker，上限 `CHUAN_PARALLEL_WORKERS` 默认 3）+ `_run_subtask(..., instance)` 透传 + `_ensure_worker_instance`（无能力/失败回退默认）+ `_resolve_sub_agent` 支持岗位实例 id（specialist > 岗位实例 > 常驻池 > 默认）——并行子任务不再挤同一默认实例，实例 id 可被子任务显式指定 | P2 | ADR-033 | 逐步迁移（第二台阶），**DONE** |
 | **N39 岗位化 1:N·第三台阶** | 按实例配置工具/模型/记忆（ADR-034）：`RoleAgentConfig{tools,model,system_prompt,checkpointer}` 贯穿 `spawn_agent`（config + 旧参数可覆盖）与 worker（`_worker_config`）+ `birth(model/tools/system_prompt)` 覆盖参数（model 跳过 brain、tools 精确替换）+ `spawn_builtin` 加 `checkpointer` + `spawn_builtin_instance` 覆盖透传 + `_agent_configs` 记录实例配置——每个实例可配不同工具子集/模型/系统提示词/会话存档（记忆），「按任务复杂度选实例」落地 | P2 | ADR-034 | 逐步迁移（第三台阶），**DONE** |
 | **N40 按复杂度选实例·声明式** | config.yaml `role_instances` 声明式配置（ADR-035）：`load_role_instances` 解析 `tiers`（simple/medium/heavy→实例 id，角色可覆盖）+ `instances`（brain/tools/system_prompt 声明，brain 用 registry 解析为模型）+ `roles.<name>.tiers` 覆盖 + `tier_for` 合并 + `_classify_complexity`（纯规则重型标记/规划/简单）+ `_resolve_tier_instance`/`_ensure_configured_instance`（声明式实例创建/复用/回退）+ dispatch 单 agent 路径按复杂度选实例——「简单→默认、重型→更强模型/编码实例」改配置即生效，全默认旁路兼容 1:1 | P2 | ADR-035 | 定位讨论，**DONE** |
+| **N46 本地资源感知采集器** | 系统/桌面/SSH/Git 状态确定性采集 handler skill（ROADMAP P3「本地资源感知」落地）：`system_status`（CPU/内存/磁盘/主机，纯标准库 + ctypes `GlobalMemoryStatusEx`/`disk_usage`）、`desktop_status`（前台窗口标题 + 主屏分辨率，ctypes WinAPI）、`ssh_status`（~/.ssh/config 主机 + known_hosts + netstat 活跃 22 端口）、`git_status`（分支/改动/stash/最近提交，只读 git）；`skills/*.yaml`（type: handler + trigger）+ `skills/handlers/*.py`，失败静默降级 | P3 | ADR-041 | 确定性、无新依赖（psutil 未装）、不依赖 LLM；全量 skill 加载 + 触发词实测通过，**DONE** |
 
 ### 依赖关系
 
@@ -321,7 +324,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P2 | ✅ 技能即记忆：重复流程自动沉淀 SKILL.md → **N30/ADR-025**（prompt 型技能） | 调研（Codex/Hermes） |
 | P2 | ✅ 自动技能创建落地：干完活自动创建新技能（`skill_creator.py`） → **N30/ADR-025** | 自研（REFERENCES L36） |
 | P2 | ✅ 岗位化 1:N 过渡：多 agent 池+会话隔离 → **N37/ADR-032**；1:N 默认启用并行独立 worker → **N38/ADR-033**；按实例配置工具/模型/记忆 → **N39/ADR-034**；config.yaml 按复杂度选实例 → **N40/ADR-035**；动态实例池自动扩缩容 → **N41/ADR-036**；岗位间协作·多岗位并行编排+共享黑板 → **N42/ADR-037**；记忆语义检索·sqlite-vec 双路合并 → **N43/ADR-038**；Redis TTL 缓存旁路·cache-aside 加速 → **N44/ADR-039**；任务队列+事件总线·Streams 可靠队列+Pub/Sub 总线 → **N45/ADR-040** | ADR-014 |
-| P2 | vault MCP server：外来 agent 经 MCP 检索/写入共享黑板 | obsidian-second-brain |
+| P2 | ✅ vault MCP server：外来 agent 经 MCP 检索/写入共享黑板 → **N49/ADR-044**（search_vault/write_vault/list_vaults 读写 data/teams/ 黑板） | obsidian-second-brain |
 | P2 | ✅ search_vault 检索工具：临时查外置 Obsidian 库，不混入记忆管道 → **N36/ADR-031** | 定位讨论 |
 | P3 | 视觉理解（截图/录屏/PDF/表格，可接 GLM-4V/Qwen-VL） | Aivy |
 | P3 | 工具市场 / 动态能力发现（运行时按信号裁剪工具集） | BaiLongma |
