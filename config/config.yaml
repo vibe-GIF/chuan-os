@@ -106,6 +106,7 @@ memory:
   external_vaults:
     - name: "obsidian"
       path: "D:/Resources/Obsidian"
+  # 预留未实现（旧占位，无代码消费；语义检索走下方 semantic / sqlite-vec 旁路）
   vector_store: "memory_store/"
   rag_corpus: "data/"
   # N43 语义检索（sqlite-vec，旁路增强）：FTS5 词法 + 向量语义双路合并召回。

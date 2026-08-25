@@ -14,7 +14,7 @@ chuan-os 的设计借鉴了多个成熟的开源项目和架构范式。本文�
 |---|---|---|
 | Gateway 中心辐射架构 | Node.js 常驻进程，含 Message Router/Session Manager/Agent Spawner/Skill Dispatcher/Memory Operations/Heartbeat/Cron | `chuan/gateway/` 七大组件（ADR-012） |
 | 工作区文件驱动 | SOUL.md/AGENTS.md/USER.md/MEMORY.md 定义 agent 行为 | `personas/<name>/SOUL.md`（ADR-013） |
-| 三层记忆系统 | 会话 JSON / SQLite+FTS5+向量 / 工作区 markdown | `chuan/memory.py` + `data/`（短期 SqliteSaver / 长期 FTS5 / 黑板 Obsidian） |
+| 三层记忆系统 | 会话 JSON / SQLite+FTS5（+N43 sqlite-vec 旁路 opt-in）/ 工作区 markdown | `chuan/memory.py` + `data/`（短期 SqliteSaver / 长期 FTS5 / 黑板 Obsidian） |
 | 微信接入 | clawbot-wechat 插件，扫码登录，远程操控电脑 | `chuan/channels/wechat.py`（✅ N19，企业微信 ADR-015） |
 | 子 agent 扩展 | spawn-agent 技能动态创建子 agent | `chuan/adapters/sub_agent_registry.py` |
 
@@ -32,7 +32,7 @@ chuan-os 的设计借鉴了多个成熟的开源项目和架构范式。本文�
 |---|---|---|
 | 语音交互闭环 | 唤醒词 + STT + LLM + TTS 全双工 | `chuan/voice/`（ADR-011） |
 | GEPA 自改进循环 | Generate-Execute-Preserve-Assess，agent 干完活评估沉淀 | `chuan/self_improve/gepa.py`（✅ N20） |
-| Obsidian RAG 记忆 | markdown 本地优先，语义召回 | `chuan/memory.py` + `data/memory/`（长期 FTS5） |
+| Obsidian RAG 记忆 | markdown 本地优先，词法召回（FTS5） | `chuan/memory.py` + `data/memory/`（长期 FTS5） |
 | 自动技能创建 | 干完活自动创建新技能 | `chuan/self_improve/skill_creator.py`（未实现） |
 | 持久记忆自检索 | agent 对话时自动检索历史记忆 | `chuan/memory.py`（✅ N13，FTS5 全文检索） |
 

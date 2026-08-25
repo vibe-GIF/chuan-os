@@ -58,7 +58,6 @@ hud_overlay/**/ephemeral/
 hud_overlay/linux/flutter/ephemeral/
 hud_overlay/macos/Flutter/ephemeral/
 hud_overlay/**/.plugin_symlinks/
-_inspect_sessions.py
 
 # HTTPS 自签证书目录（私钥，勿提交）
 certs/

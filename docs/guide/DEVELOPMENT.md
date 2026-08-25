@@ -117,7 +117,7 @@ guard 安全闸审核输出
 | 层 | 存储 | 用途 | 生命周期 |
 |---|---|---|---|
 | ① 短期会话 | SqliteSaver | 当前对话上下文 | 会话级 |
-| ② 长期检索 | SQLite + FTS5 + 向量 | 跨会话历史语义召回 | 永久 |
+| ② 长期检索 | SQLite + FTS5 词法（+N43 sqlite-vec 语义旁路，opt-in 默认关） | 跨会话历史召回 | 永久 |
 | ③ 共享黑板 | Obsidian markdown | 跨角色共享信息、用户画像 | 永久 |
 
 ### 3.4 guard 安全闸（ADR-008）
@@ -206,7 +206,7 @@ chuan-os/
 │   ├── teams/                 # 团队状态落盘
 │   └── notes/                 # 会话巩固提炼笔记
 │
-├── memory_store/              # (gitignored) 向量库文件
+├── memory_store/              # (gitignored) 预留未实现（faiss/vector_store 旧占位；语义检索走 memory_fts.db vec0，N43）
 │
 ├── docs/                      # 文档中心（docs/README.md 为总入口）
 │   ├── guide/                 # 📘 指南：DEVELOPMENT.md（本文档）
