@@ -748,3 +748,17 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: V1 不做多轨/编曲/歌词（纯和弦琶音背景乐）；不做采样/音色库（纯正弦，电子风）；不做视频/图片实际生成（后端未接入，只留占位与提示）；不接模型生成音乐（后续可加 suno 等 API 后端，接口不变）。
 
 **落地记录（已完成，2026-08-24，N56）**: `skills/handlers/media_gen.py`（`_tone`/`_synth_music`/`_write_wav`/`_out_dir`/`media_generate`）+ `skills/media_gen.yaml`（type handler，触发词：生成音乐/配乐/做首歌/生成视频/生成图片/bgm）。测试：`tests/test_media_gen.py` 10 例（skill 注册/触发词/音乐写合法 wav 读回/输出目录自动建/悲伤比欢快长/确定性/视频占位/图片占位/未知类型降级/默认目录不抛）。验收：10 passed ✓；真实生成 wav（44100Hz 16-bit mono，C 大调琶音）可被 wave 读回、大小 >44B ✓。
+
+## ADR-053: 第二轮对抗性审查（memory/team_orchestrator/wechat）健壮性修复（2026-08-25）
+
+**决策**: 第二轮审查（N19 微信 / 岗位协作 / 记忆三模块）无高危漏洞，仅健壮性改进项。按严重度排 W1/W2，**当前决议：先修 W1，W2 等部署形态确认后再定**：
+- **W1（已修）**: `WeChatChannel.handle` 无异常兜底——`dispatch` 路由抛异常（未唤醒/超时等）会把异常冒到回调入口，可能让整条微信通道崩溃。修复：`handle` 内 `dispatch` 包 try/except，异常静默降级返回可读文本「（消息处理失败，请稍后再试）」，不向远程用户暴露内部细节，对齐项目「失败静默降级」惯例（ADR-007）。
+- **W2（暂缓）**: `parse_callback` 仅支持明文 JSON 回调，不支持企业微信默认的加密 XML 回调（`Encrypt` 字段 + AES 解密）。是否补取决于部署形态——若经中转/网关解包则明文 JSON 够用，若直接暴露企业微信回调地址则必须补加解密。
+
+**其余低优先项（本轮不修，留待需要时）**: `memory.py` FTS 查询引号注入风险（已核实安全：`_TOKEN` 正则只提取字母数字+CJK，引号在分词阶段被剥离）、FTS 连接不释放（设计合理：单例连接+`_fts_lock` 全局复用）、非原子写（自愈设计：`_index_document` 幂等 DELETE+INSERT，下次 reindex 自动对齐）；`team_orchestrator.py` 固定 600s 超时无配置。
+
+**理由**: 审查已核实 wechat 的 session_id 冒号由 `team_state._safe_name` 清洗、messages 元素确认为 dict、memory 全部 FTS/vec 操作持 `_fts_lock` 无竞态；剩余项均不影响正确性，属工程健壮性，按需再修，避免为假设的部署形态过度设计。
+
+**落地记录（W1 已完成，2026-08-25）**: `chuan/channels/wechat.py` `handle` 加 try/except 降级；`tests/test_wechat.py` 新增 `test_handle_dispatch_exception_degrades`。验收：14 passed ✓（原 13 + 新 1）。
+
+**落地记录（W3 已完成，2026-08-25）**: 深挖发现 `_await_result` 前缀剥除过宽——旧代码 `content.startswith("[") and "]" in content` 会匹配任何 `[...]` 开头的产出，误删 `[数据]`、`[Important]` 等正文标签。修复：改为只剥 `[<display>]` 和 `[<role>]` 两种已知角色包装前缀，其他方括号内容原样保留。`tests/test_team_orchestrator.py` 新增 `test_await_result_preserves_non_role_bracket_content`。验收：16 passed（原 15 + 新 1），wechat+orchestrator 合计 30 passed。

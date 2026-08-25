@@ -13,9 +13,28 @@ import time
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from chuan.agents.base import AgentInstance, AgentResult
+
+
+def dangling_tool_call_ids(messages: list[Any]) -> list[str]:
+    """找出悬空 tool_call（AIMessage 请求了工具但没有对应 ToolMessage 结果）的 id。
+
+    上次会话在工具执行前中断时，检查点里会留下这种悬空调用；重启后
+    重放历史会被 LLM 提供方校验拒绝（INVALID_CHAT_HISTORY）。
+    """
+    pending: dict[str, str] = {}  # call_id -> 工具名
+    for msg in messages:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for call in msg.tool_calls:
+                cid = str(call.get("id") or "")
+                if cid:
+                    pending[cid] = str(call.get("name") or "tool")
+        elif isinstance(msg, ToolMessage):
+            pending.pop(str(msg.tool_call_id), None)
+    return list(pending.keys())
 
 
 class _ToolProgressHandler(BaseCallbackHandler):
@@ -102,6 +121,9 @@ class BuiltinAgent(AgentInstance):
         if on_progress is not None:
             # LangChain 回调在图上每个工具调用前后触发，供 TUI 画工具/记忆召回行
             config["callbacks"] = [_ToolProgressHandler(on_progress)]
+        # 先修复检查点里的悬空 tool_calls（上次会话中断残留），否则重放历史
+        # 会被 LLM 提供方校验拒绝（INVALID_CHAT_HISTORY）
+        await self._repair_history(config)
         # 用 ainvoke 而非 invoke：MCP 工具是异步的，同步 invoke 会报
         # "StructuredTool does not support sync invocation"
         result = await self._graph.ainvoke(
@@ -114,3 +136,61 @@ class BuiltinAgent(AgentInstance):
             last = messages[-1]
             content = getattr(last, "content", str(last))
         return AgentResult(content=content, agent_name=self.name)
+
+    async def _repair_history(self, config: dict[str, Any]) -> None:
+        """给检查点里悬空的 tool_calls 补上占位 ToolMessage。
+
+        上次会话在工具执行前中断时，检查点会留下"请求了工具但没有
+        结果"的 AIMessage；重启后直接 ainvoke 会抛
+        INVALID_CHAT_HISTORY（LLM 提供方强制校验）。这里读出历史，
+        为每个悬空调用补一条"上次会话中断，工具未执行"的占位结果，
+        让重放合法。任何失败都静默跳过（不阻断正常调用）。
+        """
+        try:
+            state = await self._graph.aget_state(config)
+            msgs = (state.values or {}).get("messages") or [] if state else []
+            if not msgs:
+                return
+            missing = dangling_tool_call_ids(list(msgs))
+            if not missing:
+                return
+            patches = [
+                ToolMessage(
+                    content="（上次会话中断，该工具未执行完成，请基于已有信息继续）",
+                    tool_call_id=cid,
+                )
+                for cid in missing
+            ]
+            await self._aupdate_messages(config, patches)
+        except Exception:  # noqa: BLE001 - 修复失败不阻断主流程
+            return
+
+    def _messages_node_name(self) -> str:
+        """探测一个写入 messages 的节点名，供 aupdate_state 消歧。
+
+        LangGraph 1.2+ 里，多个节点写同一 channel 时 update_state 必须
+        指定 as_node，否则抛 InvalidUpdateError（Ambiguous update）。
+        create_react_agent 有 agent/tools 两个 messages 写入者。
+        """
+        try:
+            nodes = list(self._graph.get_graph().nodes.keys())
+        except Exception:  # noqa: BLE001
+            return "agent"
+        for name in ("agent", "tools", "model", "chat"):
+            if name in nodes:
+                return name
+        return next(
+            (n for n in nodes if n not in ("__start__", "__end__")), "agent"
+        )
+
+    async def _aupdate_messages(
+        self, config: dict[str, Any], patches: list[ToolMessage]
+    ) -> None:
+        """补写 messages：先裸调（老版 LangGraph/单节点图），歧义则带 as_node 重试。"""
+        try:
+            await self._graph.aupdate_state(config, {"messages": patches})
+            return
+        except Exception:  # noqa: BLE001 - 捕获 InvalidUpdateError，带 as_node 重试
+            await self._graph.aupdate_state(
+                config, {"messages": patches}, as_node=self._messages_node_name()
+            )

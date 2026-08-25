@@ -52,3 +52,28 @@ uvicorn chuan.gateway.api:app --host 0.0.0.0 --port 8010
 ```bash
 curl -H "X-API-Key: <token>" http://127.0.0.1:8010/health
 ```
+
+## 7. 对抗性审查加固（G1/G2，2026-08-25）
+
+模拟用户 + 攻击者视角的对抗性审查（启动真实网关，`/health` 13 岗位 / 4 MCP / 真实对话正常、guard 拦截 `rm -rf /`）发现并修复两个 API 健壮性问题：
+
+- **G1 worker 参数**：未知 / 大小写 / 带空白的 worker 名原样透传，`dispatch_to` 抛 `KeyError` 被包成 **500**。修复：新增 `_normalize_worker`（去空白 + 大小写归一化，roster key 全小写），未知或纯空白 worker → **400**（客户端错误语义，不再污染 500 告警）。
+- **G2 长度上限**：`ChatRequest.message` 只有 `min_length=1` 无上限，实测 50k 字符直通模型并触发知识沉淀。修复：加 `max_length=8000`，超长 → **422**（pydantic 校验阶段拒绝，不碰模型不烧 token）。
+
+测试：`tests/test_api.py` 由 8 例扩到 **12 例**（新增：超长 422 / 未知 worker 400 / 大小写·空白归一化 200 / 纯空白 worker 400），全部通过。
+
+实测对比（真实网关 `/api/chat`，2026-08-25）：
+
+| 测试项 | 优化前 | 优化后 |
+|---|---|---|
+| 未知 worker `ghost_role` | HTTP 500 | **HTTP 400**（已修）|
+| worker 大小写/空白 `Researcher` / `' researcher '` | HTTP 500 | **HTTP 200 · 归一化**（已修）|
+| 纯空白 worker | HTTP 500 | **HTTP 400**（已修）|
+| 超长 message 50k | HTTP 200 · 烧 token · 沉淀垃圾 | **HTTP 422 · 拒绝**（已修）|
+| 危险命令 `rm -rf /` | 安全拦截 | 拦截（不变）|
+| 真实对话冒烟 | HTTP 200 正常 | HTTP 200 正常（不变）|
+| 测试覆盖 | api 8 例 · 全量 711 | **api 12 例 · 全量 717**（已修）|
+
+**遗留观察（未修，取决于部署形态）**：
+- G4 无 token 默认全放行——设计如此（本地/局域网），暴露公网必须设 `CHUAN_API_TOKEN`；
+- G5 bus/queue 在 Redis 不可达时降级 `backend: memory`——符合「协调层可降级」设计，但跨进程队列/总线实际不生效，需运维确认 Redis 可达性。

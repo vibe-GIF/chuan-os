@@ -126,14 +126,14 @@ def test_blackboard_writes_context_and_results(tmp_path) -> None:
     bb.write_context()
     bb.write_result("researcher", "竞品调研完成", True)
     bb.write_result("copywriter", "文案初稿", False)
-    context = (tmp_path / "teams" / "sessA" / "blackboard" / "context.md").read_text(
+    context = (tmp_path / "teams" / "sessA" / "backboard" / "context.md").read_text(
         encoding="utf-8")
     assert "团队任务" in context and "筹备发布会" in context
     assert "研究" in context and "文案" in context
-    r = (tmp_path / "teams" / "sessA" / "blackboard" / "researcher.md").read_text(
+    r = (tmp_path / "teams" / "sessA" / "backboard" / "researcher.md").read_text(
         encoding="utf-8")
     assert "竞品调研完成" in r
-    c = (tmp_path / "teams" / "sessA" / "blackboard" / "copywriter.md").read_text(
+    c = (tmp_path / "teams" / "sessA" / "backboard" / "copywriter.md").read_text(
         encoding="utf-8")
     assert "（失败）" in c
 
@@ -144,8 +144,8 @@ def test_blackboard_colon_session_id_safe_on_windows(tmp_path) -> None:
                         session_id="team:demo", root=tmp_path)
     bb.write_context()
     # 关键目录组件不含冒号（Windows 目录名不允许冒号；绝对路径里的盘符冒号除外）
-    assert bb.dir.parent.name == "team_demo" and bb.dir.name == "blackboard"
-    assert (tmp_path / "teams" / "team_demo" / "blackboard" / "context.md").exists()
+    assert bb.dir.parent.name == "team_demo" and bb.dir.name == "backboard"
+    assert (tmp_path / "teams" / "team_demo" / "backboard" / "context.md").exists()
 
 
 # ── TeamOrchestrator.orchestrate：并行派发 + 汇总 ────
@@ -175,8 +175,8 @@ def test_orchestrate_dispatches_all_roles_with_shared_context(tmp_path) -> None:
     assert "### [文案]" in summary and "文案初稿" in summary
     assert "团队协作完成" in summary
     # 黑板落盘
-    assert (tmp_path / "teams" / "sessA" / "blackboard" / "researcher.md").exists()
-    assert (tmp_path / "teams" / "sessA" / "blackboard" / "copywriter.md").exists()
+    assert (tmp_path / "teams" / "sessA" / "backboard" / "researcher.md").exists()
+    assert (tmp_path / "teams" / "sessA" / "backboard" / "copywriter.md").exists()
 
 
 def test_orchestrate_runs_roles_in_parallel(tmp_path) -> None:
@@ -207,6 +207,20 @@ def test_orchestrate_missing_role_marks_failed(tmp_path) -> None:
         _plan("researcher", "secretary"), session_id="miss")
     assert "正常产出" in summary
     assert "secretary 不可用" in summary and "（失败）" in summary
+
+
+def test_await_result_preserves_non_role_bracket_content(tmp_path) -> None:
+    """_await_result 只剥「[角色名]」前缀，不误伤产出正文里的方括号标签。"""
+    researcher = FakeTeamRole("researcher", "研究", reply="[数据] 1.北京 2.上海")
+    orch = _orch({"researcher": researcher}, tmp_path)
+    summary = orch.orchestrate(_plan("researcher"), session_id="bracket")
+    # 「[数据]」标签必须保留在产出正文中
+    assert "[数据]" in summary
+    # 角色包装前缀「[研究]」必须被剥掉（不重复出现在产出正文行）
+    # summary 的分节标题是「### [研究]」，产出正文行不应再以「[研究]」开头
+    lines = summary.splitlines()
+    content_lines = [l for l in lines if l.strip() and not l.startswith("###")]
+    assert any("[数据]" in l for l in content_lines)
 
 
 # ── plan_team_llm：LLM 选岗拆分（/team）──────────────

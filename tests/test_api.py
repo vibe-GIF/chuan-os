@@ -17,6 +17,7 @@ class FakeSupervisor:
     def __init__(self, is_awake: bool = True):
         self.is_awake = is_awake
         self.heartbeat = FakeHeartbeat()
+        self._workers = {"lawyer": "lawyer", "researcher": "researcher"}
 
     def dispatch(self, message, history=None, session_id="default"):
         route = "programmer" if "程序" in message else "chief_of_staff"
@@ -96,6 +97,44 @@ def test_chat_requires_nonempty_message():
     with TestClient(app) as c:
         r = c.post("/api/chat", json={"message": ""})
     assert r.status_code == 422
+
+
+def test_chat_rejects_overlong_message():
+    """G2：message 超过 max_length → 422，不烧 token。"""
+    app, _ = _app()
+    with TestClient(app) as c:
+        r = c.post("/api/chat", json={"message": "a" * 8001})
+    assert r.status_code == 422
+
+
+def test_chat_unknown_worker_returns_400():
+    """G1：未知 worker 是客户端错误 → 400 而非 500。"""
+    app, _ = _app()
+    with TestClient(app) as c:
+        r = c.post("/api/chat", json={"message": "hi", "worker": "ghost_role"})
+    assert r.status_code == 400
+    assert "ghost_role" in r.json()["detail"]
+
+
+def test_chat_worker_name_normalized():
+    """G1：worker 名去空白 + 大小写归一化（researcher / Researcher / ' researcher '）。"""
+    app, _ = _app()
+    with TestClient(app) as c:
+        for raw in ("Researcher", " researcher ", "RESEARCHER"):
+            r = c.post(
+                "/api/chat", json={"message": "hi", "worker": raw, "session_id": "s"}
+            )
+            assert r.status_code == 200
+            assert r.json()["route"] == "researcher"
+            assert r.json()["reply"] == "researcher处理：hi"
+
+
+def test_chat_blank_worker_returns_400():
+    """G1：纯空白 worker 名 → 400。"""
+    app, _ = _app()
+    with TestClient(app) as c:
+        r = c.post("/api/chat", json={"message": "hi", "worker": "   "})
+    assert r.status_code == 400
 
 
 def test_chat_503_when_not_awake():

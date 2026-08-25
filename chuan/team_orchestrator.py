@@ -107,7 +107,7 @@ def detect_team_roles(message: str, roster: dict[str, str]) -> TeamPlan | None:
 
 
 class TeamBlackboard:
-    """任务级共享黑板（磁盘真相）：data/teams/<session>/blackboard/。
+    """任务级共享黑板（磁盘真相）：data/teams/<session>/backboard/。
 
     布局:
         context.md   —— 总任务 + 分工清单（开工时写，各岗共享同一份）
@@ -126,7 +126,7 @@ class TeamBlackboard:
             base = Path(root)
         else:
             base = Path(__file__).resolve().parent.parent / "data"
-        self._dir = base / "teams" / _safe(session_id) / "blackboard"
+        self._dir = base / "teams" / _safe(session_id) / "backboard"
         self._task = task
         self._assignments = assignments
 
@@ -321,9 +321,12 @@ class TeamOrchestrator:
             return f"[岗位 {a.role} 执行失败: {exc}]", False
         content = str(reply)
         success = "执行失败" not in content
-        if content.startswith("[") and "]" in content:
-            # 剥掉「[岗位]」包装前缀，让产出干净进入黑板
-            content = content.split("]", 1)[1].strip()
+        # 只剥 dispatch 返回的「[角色名]」包装前缀（display 或 english），
+        # 不误伤产出正文里的其他方括号标签（如 [数据]、[Important]）
+        for tag in (a.display, a.role):
+            if tag and content.startswith(f"[{tag}]"):
+                content = content[len(f"[{tag}]"):].strip()
+                break
         return content, success
 
     @staticmethod

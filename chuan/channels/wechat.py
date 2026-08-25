@@ -72,11 +72,16 @@ class WeChatChannel:
         """把一条微信消息交给幕僚长，返回要回给用户的回复文本。
 
         纯路由逻辑（不依赖真实微信），会话按 ``user_id`` 隔离（``wechat:<id>``）。
+        路由异常（未唤醒 / 超时等）静默降级返回可读文本，绝不阻断微信通道
+        （对齐项目「失败静默降级」惯例）。
         """
         text = (text or "").strip()
         if not text:
             return ""
-        result = self._sup.dispatch(text, session_id=self._session_id(user_id))
+        try:
+            result = self._sup.dispatch(text, session_id=self._session_id(user_id))
+        except Exception:  # noqa: BLE001 - 路由失败降级，不向远程用户暴露内部细节
+            return "（消息处理失败，请稍后再试）"
         messages = result.get("messages", [])
         if not messages:
             return ""

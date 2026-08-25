@@ -38,7 +38,9 @@ DEFAULT_PORT = int(os.environ.get("CHUAN_API_PORT", "8010"))
 class ChatRequest(BaseModel):
     """``/api/chat`` 请求体。"""
 
-    message: str = Field(..., min_length=1, description="用户输入文本")
+    message: str = Field(
+        ..., min_length=1, max_length=8000, description="用户输入文本"
+    )
     session_id: str = Field("default", description="会话 ID，用于会话隔离")
     history: list[dict[str, str]] | None = Field(
         None,
@@ -111,6 +113,18 @@ def _last_message(result: dict[str, Any]) -> str:
     return str(content or "（没有返回内容）")
 
 
+def _normalize_worker(sup: Any, name: str | None) -> str | None:
+    """归一化岗位名：去空白 + 大小写匹配（roster key 全小写）；无效返回 None。"""
+    w = (name or "").strip()
+    if not w:
+        return None
+    workers = getattr(sup, "_workers", {})
+    if w in workers:
+        return w
+    lw = w.lower()
+    return lw if lw in workers else None
+
+
 def create_app(
     *,
     supervisor: RuntimeSupervisor | None = None,
@@ -168,10 +182,15 @@ def create_app(
         session_id = req.session_id or "default"
         try:
             if req.worker:
+                worker = _normalize_worker(sup, req.worker)
+                if worker is None:
+                    raise HTTPException(
+                        status_code=400, detail=f"worker '{req.worker}' 不可用"
+                    )
                 result = sup.dispatch_to(
-                    req.worker, req.message, session_id=session_id
+                    worker, req.message, session_id=session_id
                 )
-                route, method = req.worker, "worker"
+                route, method = worker, "worker"
             else:
                 result = sup.dispatch(
                     req.message, history=req.history, session_id=session_id

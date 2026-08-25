@@ -219,6 +219,13 @@ class AgentHarness:
                 daemon=True,
             ).start()
 
+    def _dep_ok(self, d: str) -> bool:
+        """依赖是否已结束。已被裁剪的终态任务视作已结束（submit 保证存在过）。"""
+        e = self._tasks.get(d)
+        if e is None:
+            return True
+        return e.get("status") in _TERMINAL
+
     def _promote_pending(self) -> None:
         """任务结束后推进依赖就绪的 pending 任务 → ready 并调度。"""
         with self._lock:
@@ -226,10 +233,7 @@ class AgentHarness:
                 tid
                 for tid, e in self._tasks.items()
                 if e["status"] == "pending"
-                and all(
-                    self._tasks.get(d, {}).get("status") in _TERMINAL
-                    for d in (e.get("depends_on") or [])
-                )
+                and all(self._dep_ok(d) for d in (e.get("depends_on") or []))
             ]
             for tid in to_schedule:
                 self._tasks[tid]["status"] = "ready"

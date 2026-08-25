@@ -476,8 +476,9 @@ def _run_alwayson_loop(
                 if awake_pending and playback_done():
                     # 唤醒应答播完 → 自动转录音，请讲
                     awake_pending = False
-                    listener.start_recording()
-                    print("✓ 请讲…")
+                    if not listener.busy:  # barge-in 已转入录音，勿重复 reset 丢话语
+                        listener.start_recording()
+                        print("✓ 请讲…")
                     break
                 if playback_done() and not prompt_shown:
                     if wake_word is not None:
@@ -530,6 +531,10 @@ def _run_alwayson_loop(
                         listener.start_recording()
                         print("✓ 请讲…")
                         break
+                    # 记录应答线程到 tts_thread，让 playback_done() 等到应答
+                    # 真正播完再转录音；否则 tts_thread["t"] 仍为 None，
+                    # playback_done() 立即返回 True，应答刚开口就被打断进录音
+                    tts_thread["t"] = t
 
             # ── 阶段 2：等录音收尾（Enter 触发的路径）──
             if utterance is None:

@@ -1,7 +1,7 @@
 """微信接入通道（N19 / ADR-015）的单元测试。
 
 覆盖：企业微信回调解析、会话按 user_id 隔离、路由透传与回复提取、
-配置门控（未配置/未启用时 send 优雅降级）。
+路由异常降级兜底、配置门控（未配置/未启用时 send 优雅降级）。
 """
 from __future__ import annotations
 
@@ -79,6 +79,17 @@ def test_handle_no_messages_returns_empty() -> None:
 
     channel = WeChatChannel(_EmptySupervisor(), config={})  # type: ignore[arg-type]
     assert channel.handle("u1", "hi") == ""
+
+
+def test_handle_dispatch_exception_degrades() -> None:
+    """路由抛异常时静默降级返回可读文本，绝不阻断通道（W1 兜底）。"""
+
+    class _BoomSupervisor:
+        def dispatch(self, message: str, *, session_id: str = "default") -> dict:
+            raise RuntimeError("dispatch boom")
+
+    channel = WeChatChannel(_BoomSupervisor(), config={})  # type: ignore[arg-type]
+    assert channel.handle("u1", "hi") == "（消息处理失败，请稍后再试）"
 
 
 # --------------------------------------------------------------------- #
