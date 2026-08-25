@@ -707,4 +707,4 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 
 **反例**: V1 不引 pyannote/ecapa 等重模型（后续可换后端，接口不变）；不做远端云端声纹（全部本地）；不做连续说话人跟踪（只做单段验证）；`data/speakers/` 不加密（V2 可做）。
 
-**落地记录（已完成，2026-08-24，N54）**: `chuan/voice/spoof.py`（`extract_features`/`enroll_speaker`/`load_speaker`/`list_speakers`/`remove_speaker`/`anti_spoof`/`_compare_voiceprint`/`_safe_name`/`_to_float32`）。测试：`tests/test_voice_spoof.py` 15 例（enroll 写盘读回/拒静音过短/路径穿越/特征形状/静音判 spoof/过短判 spoof/未注册旁路/匹配通过/异声纹判伪造/未知名旁路/list+remove/int16-float32 缩放/garbage 不抛）+ `tests/test_voice.py` 44 例回归。验收：两文件 59 passed ✓。
+**落地记录（已完成，2026-08-24，N54）**: `chuan/voice/spoof.py`（`extract_features`/`enroll_speaker`/`load_speaker`/`list_speakers`/`remove_speaker`/`anti_spoof`/`_compare_voiceprint`/`_safe_name`/`_to_float32`）。测试：`tests/test_voice_spoof.py` 13 例（enroll 写盘读回/拒静音过短/路径穿越/特征形状/静音判 spoof/过短判 spoof/未注册旁路/匹配通过/异声纹判伪造/未知名旁路/list+remove/int16-float32 缩放/garbage 不抛）+ `tests/test_voice.py` 46 例回归。验收：两文件 59 passed ✓。
