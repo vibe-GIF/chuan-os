@@ -51,11 +51,20 @@ brains:
     api_key_env: "BAILIAN_API_KEY"
     api_key_secret: "bailian_api_key"
 
+  deepseek_flash:
+    # 2026-08-25 接入：DeepSeek-v4-Flash（TokenRhythm Studio 中转，OpenAI 兼容）
+    # 中转 key 存 config/secrets.yaml 的 deepseek_api_key（不入 Git）
+    provider: openai
+    model: "deepseek-v4-flash"
+    base_url: "https://tokenrhythm.studio/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+    api_key_secret: "deepseek_api_key"
+
 # === 路由策略 ===
 routing:
   # 优先级：显式锁定 > 关键词计分 > 本体 > 兜底
-  # 默认百炼 qwen-flash（极低价但工具调用稳）；想省钱切回 cloud_general（智谱免费档）
-  default_brain: bailian_flash
+  # 2026-08-25：默认 DeepSeek-v4-Flash（中转）；fallback 保持智谱免费档兜底。
+  default_brain: deepseek_flash
   fallback_brain: cloud_general
 
 # === N40 岗位 agent 实例：按任务复杂度选实例（声明式）===
