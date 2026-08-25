@@ -42,6 +42,15 @@ brains:
     model: "qwen2.5:7b"
     base_url: "http://localhost:11434"
 
+  vision:
+    # N50 视觉理解：图片/截图/PDF 视觉分析（qwen-vl 视觉模型，key 复用百炼）
+    # 供 skills/vision_analyze.yaml handler 调用（OpenAI 兼容视觉消息）；非文本路由脑。
+    provider: openai
+    model: "qwen-vl-plus"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "BAILIAN_API_KEY"
+    api_key_secret: "bailian_api_key"
+
 # === 路由策略 ===
 routing:
   # 优先级：显式锁定 > 关键词计分 > 本体 > 兜底

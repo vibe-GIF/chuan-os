@@ -1,0 +1,19 @@
+# 视觉理解（N50）
+name: vision_analyze
+description: 视觉理解：分析本地图片文件或图片 URL，返回内容描述（识别物体 / 文字 OCR / 场景 / 布局 / 图表）。看图片、分析截图、识别图中文字时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["看图", "识别图片", "图片内容", "这张图", "截图分析", "图片里", "图里有什么", "图片中"]
+
+# 调用的本地 handler（读 config brains.vision 视觉模型，key 复用百炼）
+handler:
+  module: handlers.vision_analyze
+  function: vision_analyze
+
+# 参数映射
+params:
+  image_ref:
+    from: user_input
+    required: false

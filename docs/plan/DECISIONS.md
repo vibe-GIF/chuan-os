@@ -647,3 +647,17 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: 不 import chuan（外来 agent 独立进程，自包含优先，故障隔离）；不做用户/角色鉴权（本地单机 stdio server，权限边界由 MCP 客户端侧配置管理，对齐 filesystem_server 的权限标签模型）；不接 N24 Wiki 实体页改写/蒸馏（黑板是易变协作真相层，Wiki 是蒸馏知识层，二者分层，检索命中用关键词即可，不引 RAG 复杂度）。
 
 **落地记录（已完成，2026-08-24，N49）**: 新增 `mcp_servers/vault_server.py`（`list_vaults`/`search_vault`/`write_vault` + `_team_file` realpath 前缀校验 + `_safe_team_name` 白名单清洗 + `_save_doc` 原子落盘 + `_snippet` 命中片段）+ `config/mcp_servers.yaml` 追加 `vault` 段（`command: python` / `args: ["mcp_servers/vault_server.py"]` / `permissions: [read, write]` / description，未动其他 server 段）+ 测试 `tests/test_vault_server.py`（13 例：list 空提示/列黑板、write 新建/追加/空参数校验、search 命中 task/subtask/note/无命中提示/指定 vault 隔离/空查询、路径穿越清洗 + 分隔符清洗 + 工具注册三件套）。验收：`.venv` `from mcp.server.fastmcp import FastMCP` ✓；`python mcp_servers/vault_server.py` stdio 启动并响应 initialize（serverInfo=vault）✓；`pytest tests/test_vault_server.py` 13 passed ✓；全量 `pytest -q` 640 passed、2 skipped ✓（含本节点 13 例）。
+
+## ADR-045: 视觉理解（N50，图片/截图视觉分析 handler skill）
+
+**决策**: 落地 ROADMAP P3 待办「视觉理解（截图/录屏/PDF/表格，可接 GLM-4V/Qwen-VL）」第一步——新增 `skills/vision_analyze.yaml` + `skills/handlers/vision_analyze.py` handler skill，给 agent 加「分析一张图片」的能力（V1 覆盖本地图片文件 + 图片 URL）：
+- **视觉大脑**：config.yaml `brains.vision`（provider openai，`qwen-vl-plus`，base_url 百炼 dashscope，key 复用 `BAILIAN_API_KEY`/`bailian_api_key`）——只作 handler 的模型配置，不进文本路由；
+- **调用路径**：`vision_analyze(image_ref)` → 本地文件读字节 base64 成 `data:image/*;base64,...`（mime 按扩展名）或直用 http(s) URL → OpenAI 兼容视觉消息（`text` + `image_url`）调 `_call_vision` → 返回描述文本；
+- **静默降级**（对齐项目惯例）：未提供图 / 图片不存在 / key 缺失 / 模型调用失败 → 全部返回可读错误文本，绝不抛错；模型调用隔离在 `_call_vision`，便于单测 mock；
+- **注册**：`type: handler` + 触发词（看图/识别图片/图片内容/截图分析…），经 SkillRegistry 包装为 LangChain Tool 全量挂载。
+
+**理由**: P3 视觉理解的第一步从「看懂一张图」切入——这是截图 / PDF / 表格（转图后）共用的底层能力；用既有 `openai` 客户端 + OpenAI 兼容视觉消息，零新增依赖；key 复用百炼（与 bailian_flash 同平台），无需新申请。
+
+**反例**: V1 不做屏幕截图/录屏采集（Windows 截屏 + 视频抽帧留待后续）；不做 PDF 直解析（需先转图，留待后续）；不做图片目标检测/坐标定位（描述文本即可）；不把视觉脑加入文本路由（qwen-vl 只用于看图的 handler，避免污染文本路由计费/行为）。
+
+**落地记录（已完成，2026-08-24，N50）**: `skills/vision_analyze.yaml`（trigger 关键词）+ `skills/handlers/vision_analyze.py`（`_load_vision_cfg`/`_resolve_api_key`/`_image_data_uri`/`_call_vision`/`vision_analyze`）+ `config/config.yaml`（`brains.vision`，仅新增该段）+ `tests/test_vision_analyze.py`（8 例：注册/触发词/空输入/缺文件/缺 key/mock 本地图 data URI/mock URL/调用失败降级）。验收：`pytest tests/test_vision_analyze.py` 8 passed ✓；`BrainRegistry` 加载含 vision、`ToolRegistry.get_tools()` 含 vision_analyze ✓；端到端真实调用（百炼 qwen-vl-plus，本地生成 64x64 红色 PNG）→ 返回「整个画面由纯红色填充…无文字 OCR…可能是测试图」✓。

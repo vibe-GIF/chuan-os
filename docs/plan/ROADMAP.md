@@ -49,6 +49,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N47 HTTP API Gateway** | FastAPI 客户端/服务器解耦接入层：/health + /api/chat（ADR-042） | 架构升级 | ✅ |
 | **N48 局域网 HTTPS + 手机 PWA 接入** | HTTP/HTTPS 网关 + PWA（manifest/SW）+ SCENE WebSocket：手机同局域网 HTTPS 访问并下发/接收 HUD 命令 + 顺手修正文档口径（ADR-043） | 架构升级 | ✅ |
 | **N49 vault MCP server** | 外来 agent 经 MCP 检索/写入共享黑板：search_vault/write_vault/list_vaults 读写 data/teams/ 黑板（ADR-044） | 架构升级 | ✅ |
+| **N50 视觉理解** | 图片/截图视觉分析 handler skill：vision_analyze 本地图/URL → qwen-vl 视觉模型返回描述，key 复用百炼、静默降级（ADR-045） | 能力增强 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
 
@@ -326,7 +327,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P2 | ✅ 岗位化 1:N 过渡：多 agent 池+会话隔离 → **N37/ADR-032**；1:N 默认启用并行独立 worker → **N38/ADR-033**；按实例配置工具/模型/记忆 → **N39/ADR-034**；config.yaml 按复杂度选实例 → **N40/ADR-035**；动态实例池自动扩缩容 → **N41/ADR-036**；岗位间协作·多岗位并行编排+共享黑板 → **N42/ADR-037**；记忆语义检索·sqlite-vec 双路合并 → **N43/ADR-038**；Redis TTL 缓存旁路·cache-aside 加速 → **N44/ADR-039**；任务队列+事件总线·Streams 可靠队列+Pub/Sub 总线 → **N45/ADR-040** | ADR-014 |
 | P2 | ✅ vault MCP server：外来 agent 经 MCP 检索/写入共享黑板 → **N49/ADR-044**（search_vault/write_vault/list_vaults 读写 data/teams/ 黑板） | obsidian-second-brain |
 | P2 | ✅ search_vault 检索工具：临时查外置 Obsidian 库，不混入记忆管道 → **N36/ADR-031** | 定位讨论 |
-| P3 | 视觉理解（截图/录屏/PDF/表格，可接 GLM-4V/Qwen-VL） | Aivy |
+| P3 | ✅ 视觉理解（图片/截图分析 V1 → **N50/ADR-045**；录屏/PDF/表格转图留待扩展） | Aivy |
 | P3 | 工具市场 / 动态能力发现（运行时按信号裁剪工具集） | BaiLongma |
 | P3 | 本地资源感知（系统/桌面/SSH/Git 采集器） → 完成（**N46/ADR-041**，2026-08-24）；天气采集已由既有 weather_check skill 覆盖 | BaiLongma |
 | P3 | ✅ HTTP API / FastAPI Gateway（客户端/服务器解耦，接入层扩展） → **N47/ADR-042** | 自研（ADR-011） |
