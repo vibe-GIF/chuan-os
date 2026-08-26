@@ -1,0 +1,19 @@
+# GUI 自动化·截图（N57a，借鉴影刀 RPA 能力）
+name: gui_screenshot
+description: 截取当前屏幕保存为 PNG 图片，用于查看屏幕状态或配合视觉分析。截屏、截图、屏幕截图、看屏幕、看下屏幕、截个屏、截一张图时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["截屏", "截图", "屏幕截图", "看屏幕", "看下屏幕", "截个屏", "截一张图"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_screenshot
+
+# 参数映射
+params:
+  path:
+    from: user_input
+    required: false

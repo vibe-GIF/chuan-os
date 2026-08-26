@@ -1,0 +1,31 @@
+# GUI 自动化·点击（N57b，借鉴影刀 RPA 能力）
+name: gui_click
+description: 点击桌面窗口里的元素（按钮/菜单/链接等）。默认后台静默点击（UIA，不抢鼠标键盘），定位不到时降级为前台真实鼠标。点击、点一下、点按钮、点发送、按一下、双击时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["点一下", "点击", "点按钮", "点发送", "按一下", "点确定", "点确认", "点提交", "双击"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_click
+
+# 参数映射
+params:
+  description:
+    from: user_input
+    required: false
+  window:
+    from: user_input
+    required: false
+  index:
+    from: user_input
+    required: false
+  x:
+    from: user_input
+    required: false
+  y:
+    from: user_input
+    required: false

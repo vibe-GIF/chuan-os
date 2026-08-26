@@ -1,0 +1,15 @@
+# GUI 自动化·窗口枚举（N57a，借鉴影刀 RPA 能力）
+name: gui_list_windows
+description: 列出当前打开的可见桌面窗口（标题+类型），用于操作 GUI 前确认目标窗口。有哪些窗口、列出窗口、打开什么窗口、看下有哪些窗口时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["有哪些窗口", "列出窗口", "打开什么窗口", "看下有哪些窗口", "窗口列表"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_list_windows
+
+# 参数映射（无）

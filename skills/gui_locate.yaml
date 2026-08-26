@@ -1,0 +1,22 @@
+# GUI 自动化·元素定位（N57a，借鉴影刀 RPA 能力）
+name: gui_locate
+description: 在指定桌面窗口里按控件描述（按钮/输入框/文本）定位元素，返回控件信息和坐标；定位不到时自动截图并用视觉分析兜底。定位、找按钮、找输入框、找控件、找元素、元素定位、定位元素、点哪里时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["定位", "找按钮", "找输入框", "找控件", "找元素", "元素定位", "定位元素", "找窗口"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_locate
+
+# 参数映射
+params:
+  description:
+    from: user_input
+    required: false
+  window:
+    from: user_input
+    required: false

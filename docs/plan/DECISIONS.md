@@ -787,4 +787,7 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 
 **理由**: 现实是 90% 的桌面软件没有 API（微信/飞书/业务系统），只能靠「看 + 点」；chuan-os 已具备视觉理解（vision_analyze）与语音全链路，只缺「截图 → 定位坐标 → 模拟鼠标键盘」这一环，地基是现成的。影刀 PRA（2025，个人版 RPA 助手，对话式让 AI 操作电脑）验证了该方向，但 GUI 层自动化天生脆（界面改版即崩），故**接口优先、GUI 兜底**，且安全前置。
 
-**落地记录（未开工，2026-08-25 仅列计划）**: 阶段 1–4 计划已列，待确认后逐步实施。
+**落地记录（2026-08-25）**:
+- **阶段 1（N57a）✅ 已完成**：新建 `skills/handlers/gui_automation.py`，实现 `gui_screenshot`（mss 截主屏存 PNG，缺依赖/失败静默降级）、`gui_list_windows`（pywinauto 枚举可见顶层窗口）、`gui_locate`（按控件描述在目标窗口定位元素，返回控件信息 + 中心坐标；定位不到自动截图 + `vision_analyze` 视觉兜底）。配套 skill：`skills/gui_screenshot.yaml` / `gui_list_windows.yaml` / `gui_locate.yaml`（触发关键词如「截图/定位/找按钮」）。单测 `tests/test_gui_automation.py` 10 passed（mock mss/pywinauto，覆盖非 Windows 降级、截图落盘、窗口枚举、元素定位、视觉兜底分支）；真实 Windows 环境冒烟验证通过（真截图、真枚举微信窗口、真定位按钮）。依赖 `mss`/`pywinauto`/`pyautogui` 均已安装（.venv）。全量回归 735 passed / 2 skipped 无回退。
+- **阶段 2（N57b）✅ 已完成**：在 `gui_automation.py` 追加 `gui_click`（后台静默主力：UIA Invoke / client-side click 不抢鼠标键盘；定位不到或控件不支持静默时降级 `pyautogui` 前台真实鼠标点坐标）、`gui_type`（Edit 控件 `set_edit_text` 后台静默直写不抢焦点，其余控件降级 `set_focus + type_keys` 前台键盘）、`gui_scroll`（`pyautogui` 前台滚轮：坐标 / 定位元素悬停中心 / 当前光标，方向上下、格数 1-20 钳制）、`gui_hotkey`（危险组合安全闸拦截 Ctrl+Alt+Del / Win+L / Win+U；指定窗口则 `set_focus + send_keystrokes`（pywinauto 语法 `^S` 等），否则全局 `pyautogui.hotkey`）。配套 4 个 skill yaml：`gui_click.yaml` / `gui_type.yaml` / `gui_scroll.yaml` / `gui_hotkey.yaml`，SkillRegistry 共 20 个 skill 全部加载成功。单测新增 16 个（共 26 passed，mock pywinauto/pyautogui，覆盖静默点击与前台兜底、静默输入与前台兜底、滚动符号/钳制、热键安全闸/窗口/全局）；真实环境冒烟通过（枚举 16 可见窗口、危险热键被拦截、`Ctrl + S` → `ctrl+s` → `^S`）。
+- **阶段 3（N57c）待开工**：`gui_operate` 闭环（截图 → 定位 → 操作 → 验证截图）+ 双模式并存 + 动态切换 + 静默可见性 + 安全闸强化。

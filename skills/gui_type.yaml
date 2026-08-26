@@ -1,0 +1,28 @@
+# GUI 自动化·输入（N57b，借鉴影刀 RPA 能力）
+name: gui_type
+description: 向桌面窗口里的输入框输入文本。输入框支持后台静默直写（set_edit_text，不抢焦点），其余控件降级为前台键盘输入。输入、打字、填写、填入、写入、输入文字时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["输入", "打字", "填写", "填入", "输入文字", "输入内容", "键入"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_type
+
+# 参数映射
+params:
+  text:
+    from: user_input
+    required: true
+  description:
+    from: user_input
+    required: false
+  window:
+    from: user_input
+    required: false
+  index:
+    from: user_input
+    required: false

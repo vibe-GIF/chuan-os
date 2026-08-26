@@ -1,0 +1,34 @@
+# GUI 自动化·滚动（N57b，借鉴影刀 RPA 能力）
+name: gui_scroll
+description: 在桌面窗口里滚动（滚轮）。可指定坐标或先定位元素悬停其中心再滚；未指定则滚当前鼠标位置。滚动、往下滚、往上滚、滚一下、翻页时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["滚动", "往下滚", "往上滚", "向下滚", "向上滚", "滚一下", "翻页"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_scroll
+
+# 参数映射
+params:
+  direction:
+    from: user_input
+    required: false
+  amount:
+    from: user_input
+    required: false
+  x:
+    from: user_input
+    required: false
+  y:
+    from: user_input
+    required: false
+  window:
+    from: user_input
+    required: false
+  description:
+    from: user_input
+    required: false

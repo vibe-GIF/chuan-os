@@ -1,0 +1,22 @@
+# GUI 自动化·快捷键（N57b，借鉴影刀 RPA 能力）
+name: gui_hotkey
+description: 发送桌面快捷键（如 ctrl+s 保存、alt+f4 关闭、win+d 回桌面）。可指定窗口先激活再发送；危险组合（Ctrl+Alt+Del / Win+L 等）被安全闸拦截。快捷键、热键、按下 ctrl、按键组合时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["快捷键", "热键", "按键组合", "按下 ctrl", "ctrl+s", "alt+f4", "ctrl+c", "ctrl+v"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_hotkey
+
+# 参数映射
+params:
+  keys:
+    from: user_input
+    required: true
+  window:
+    from: user_input
+    required: false
