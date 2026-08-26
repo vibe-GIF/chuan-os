@@ -810,7 +810,14 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 - 配套 skill：`gui_mem_list.yaml` / `gui_mem_forget.yaml`（查看/清理），SkillRegistry 共 24 个 skill 全部加载成功。
 - 单测 `tests/test_gui_memory.py` 12 个（save/lookup roundtrip、upsert 命中计数、模糊+优先级、无匹配、空描述拒绝、forget 各形态、list 渲染/空、DB 打不开静默降级）+ `test_gui_automation.py` 集成 4 个（locate 存记忆、locate 记忆命中跳过视觉、click 记忆坐标兜底、无记忆回 hint）。真实 DB 冒烟通过（存/查/列/删全链路，事后清理）。
 - 测试隔离：新增 `tests/conftest.py` autouse fixture 把 `_DB` 统一指向 tmp——**关键坑**：SkillRegistry 会把 `skills/` 加入 sys.path，使 `handlers.gui_memory`（生产路径，gui_automation 内懒加载用）与 `skills.handlers.gui_memory`（命名空间包路径，测试 import 用）成为**两个不同模块对象**、`_DB` 不互通；只补丁一个会继续污染真实 data/gui/elements.db。conftest 对两个对象同时补丁到同一 tmp DB。
-- 全量回归 798 passed / 2 skipped 无回退。
+- 全量回归 812 passed / 2 skipped 无回退。
+
+**自愈闭环（N58 二次迭代，坐标过期自愈）**: 记忆只记「点哪」不记「点对没点对」会让旧坐标反噬——界面改版/换 DPI 屏后 `hits` 越攒越高、越错越优先。补「点击 → 复核 → 置信度 → 遗忘 + 重定位」闭环：
+- `gui_memory` schema 增 `fail_streak` / `last_verified_at`（`_connect` 幂等 `ALTER TABLE` 给旧库补列）；新增 `gui_mem_verify(app, description, ok)`——`ok=True` 重置 fail_streak 并更新 last_verified_at；`ok=False` 累计 fail_streak，连续失败达阈值 3 即删除该条（返回 reset/kept/forgotten/missing）。
+- `gui_automation` 记忆兜底（`gui_click` UIA 定位不到但有记忆坐标）改走 `_click_with_memory_verify`：截图(前) → 前台坐标点击 → 延迟 300ms → 截图(后) → `_click_effect_changed` 复核 → `gui_mem_verify` 更新置信度 → 连续失效达阈值自动 `_relocate_and_resave`（视觉重定位新坐标 + 重新记入记忆 + 用新坐标补一次点击）。
+- 复核信号分级（强→弱）：L1 点击后重新 UIA 定位（能找到说明界面确实变了）→ L2 截图 dHash 汉明距离（`_img_dhash`，阈值 5，宽松防误删）→ unknown（缺 PIL/截图失败则不动记忆，只提示「无法确认」）。
+- 边界：不做误操作回滚、不做多 DPI 归一化坐标存储（那是另一独立 bug，避免混入）；复核延迟 300ms、失效阈值 3（常量可配）。遗忘保守——单次不改判、连续 3 次才删；删除不是终点，必须接重定位重记。
+- 单测：`test_gui_memory.py` +3（verify ok 重置 / 失败累计至遗忘 / missing noop）、`test_gui_automation.py` +11（_img_dhash 降级、_click_effect_changed L1/L2/unknown、_click_with_memory_verify changed/kept/forgotten/unknown、_relocate_and_resave 成功/失败），改 1 个（click 记忆兜底改为验证闭环调用）。
 
 **理由**: GUI 自动化天生脆（界面改版即崩），且每次都要重新定位很「费调教」；记忆库让常用操作收敛为「一次定位、永久复用」。SQLite 单文件零依赖，对齐 sessions.db/memory_fts.db 惯例。
 

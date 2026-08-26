@@ -107,3 +107,30 @@ def test_db_unopenable_degrades(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
     assert gm.gui_mem_lookup() == []
     assert gm.gui_mem_forget("微信", "发送按钮") == 0
     assert "为空" in gm.gui_mem_list()
+
+
+# ── verify（N58 自愈闭环）────────────────────────────
+
+def test_verify_ok_resets_streak(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    _patch_db(monkeypatch, tmp_path)
+    gm.gui_mem_save("微信", "发送按钮", x=60, y=35)
+    assert gm.gui_mem_verify("微信", "发送按钮", ok=False) == "kept"   # 先累积 1 次失败
+    assert gm.gui_mem_verify("微信", "发送按钮", ok=True) == "reset"
+    r = gm.gui_mem_lookup(app="微信", description="发送按钮")[0]
+    assert r["fail_streak"] == 0
+    assert r["last_verified_at"]
+
+
+def test_verify_fail_accumulates_then_forgets(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    _patch_db(monkeypatch, tmp_path)
+    gm.gui_mem_save("微信", "发送按钮", x=60, y=35)
+    assert gm.gui_mem_verify("微信", "发送按钮", ok=False) == "kept"       # streak 1
+    assert gm.gui_mem_verify("微信", "发送按钮", ok=False) == "kept"       # streak 2
+    assert gm.gui_mem_verify("微信", "发送按钮", ok=False) == "forgotten"  # streak 3 → 删除
+    assert gm.gui_mem_lookup(app="微信", description="发送按钮") == []
+
+
+def test_verify_missing_noop(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    _patch_db(monkeypatch, tmp_path)
+    assert gm.gui_mem_verify("微信", "不存在") == "missing"
+    assert gm.gui_mem_verify("", "") == "missing"

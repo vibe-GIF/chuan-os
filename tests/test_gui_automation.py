@@ -730,10 +730,16 @@ def test_click_memory_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     win = _Win("微信", controls=[_Control("别的东西")])
     monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
     monkeypatch.setattr(ga, "_mem_best_coords", lambda win, desc: (100, 200))
-    calls = _patch_pyautogui(monkeypatch)
+    seen: dict = {}
+    monkeypatch.setattr(
+        ga,
+        "_click_with_memory_verify",
+        lambda x, y, w, kw, d: seen.update(x=x, y=y, kw=kw, d=d) or "已记忆点击",
+    )
     res = ga.gui_click("发送", "微信")
-    assert calls["click"] == [(100, 200)]
-    assert "元素记忆命中" in res and "(100, 200)" in res
+    assert seen["x"] == 100 and seen["y"] == 200
+    assert seen["kw"] == "微信" and seen["d"] == "发送"
+    assert res == "已记忆点击"
 
 
 def test_click_memory_fallback_none_returns_hint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -742,3 +748,117 @@ def test_click_memory_fallback_none_returns_hint(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(ga, "_mem_best_coords", lambda win, desc: None)
     res = ga.gui_click("发送", "微信")
     assert "未找到匹配" in res
+
+
+# ── 记忆兜底自愈闭环（N58 增强）──────────────────────
+
+def test_img_dhash_missing_pil_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "PIL":
+            raise ImportError("no PIL")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert ga._img_dhash("whatever.png") is None
+    assert ga._img_dhash("") is None
+
+
+def test_click_effect_changed_l1_uia(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctl = _Control("发送", "Button")
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_find_control", lambda w, d: ctl)  # 点击后 UIA 已能定位
+    status, _ = ga._click_effect_changed("前", "后", win, "发送")
+    assert status == "changed"
+
+
+def test_click_effect_changed_l2_diff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_find_control", lambda w, d: None)  # L1 未命中
+    monkeypatch.setattr(ga, "_extract_path", lambda m: m)
+    monkeypatch.setattr(ga, "_img_dhash", lambda p: 0 if "前" in p else 255)  # 汉明距离 8 > 5
+    status, _ = ga._click_effect_changed("前", "后", None, "发送")
+    assert status == "changed"
+
+
+def test_click_effect_changed_l2_same(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_find_control", lambda w, d: None)
+    monkeypatch.setattr(ga, "_extract_path", lambda m: m)
+    monkeypatch.setattr(ga, "_img_dhash", lambda p: 0)  # 完全一致
+    status, _ = ga._click_effect_changed("前", "后", None, "发送")
+    assert status == "unchanged"
+
+
+def test_click_effect_changed_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_find_control", lambda w, d: None)
+    monkeypatch.setattr(ga, "_extract_path", lambda m: m)
+    monkeypatch.setattr(ga, "_img_dhash", lambda p: None)  # 无 PIL
+    status, _ = ga._click_effect_changed("前", "后", None, "发送")
+    assert status == "unknown"
+
+
+def _patch_mem_module(monkeypatch: pytest.MonkeyPatch, verify_fn) -> None:
+    """把 handlers.gui_memory 替换为带 gui_mem_verify 的 fake 模块（避免双模块 DB 陷阱）。"""
+    fake = types.ModuleType("handlers.gui_memory")
+    fake.gui_mem_verify = verify_fn
+    monkeypatch.setitem(sys.modules, "handlers.gui_memory", fake)
+
+
+def test_click_with_memory_verify_changed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "gui_screenshot", lambda: "shot")
+    monkeypatch.setattr(ga, "_click_xy", lambda x, y: f"点({x},{y})")
+    monkeypatch.setattr(ga.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ga, "_click_effect_changed", lambda b, a, w, d: ("changed", "生效"))
+    _patch_mem_module(monkeypatch, lambda app, desc, ok: "reset")
+    res = ga._click_with_memory_verify(100, 200, None, "微信", "发送")
+    assert "点(100,200)" in res and "点击生效" in res
+
+
+def test_click_with_memory_verify_unchanged_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "gui_screenshot", lambda: "shot")
+    monkeypatch.setattr(ga, "_click_xy", lambda x, y: f"点({x},{y})")
+    monkeypatch.setattr(ga.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ga, "_click_effect_changed", lambda b, a, w, d: ("unchanged", "几乎未变"))
+    _patch_mem_module(monkeypatch, lambda app, desc, ok: "kept")
+    res = ga._click_with_memory_verify(100, 200, None, "微信", "发送")
+    assert "可能未生效" in res and "累积失效记录" in res
+
+
+def test_click_with_memory_verify_forgotten_relocates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "gui_screenshot", lambda: "shot")
+    monkeypatch.setattr(ga, "_click_xy", lambda x, y: f"点({x},{y})")
+    monkeypatch.setattr(ga.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ga, "_click_effect_changed", lambda b, a, w, d: ("unchanged", "几乎未变"))
+    _patch_mem_module(monkeypatch, lambda app, desc, ok: "forgotten")
+    relocated: dict = {}
+    monkeypatch.setattr(ga, "_relocate_and_resave", lambda w, kw, d: relocated.update(kw=kw, d=d) or "已重定位")
+    res = ga._click_with_memory_verify(100, 200, None, "微信", "发送")
+    assert res == "已重定位"
+    assert relocated["kw"] == "微信" and relocated["d"] == "发送"
+
+
+def test_click_with_memory_verify_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "gui_screenshot", lambda: "shot")
+    monkeypatch.setattr(ga, "_click_xy", lambda x, y: f"点({x},{y})")
+    monkeypatch.setattr(ga.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ga, "_click_effect_changed", lambda b, a, w, d: ("unknown", ""))
+    res = ga._click_with_memory_verify(100, 200, None, "微信", "发送")
+    assert "无法确认点击效果" in res and "保留记忆" in res
+
+
+def test_relocate_and_resave_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_visual_locate", lambda d: (300, 400))
+    fake = types.ModuleType("handlers.gui_memory")
+    saved: list = []
+    fake.gui_mem_save = lambda **kw: saved.append(kw) or True
+    monkeypatch.setitem(sys.modules, "handlers.gui_memory", fake)
+    monkeypatch.setattr(ga, "_click_xy", lambda x, y: f"点({x},{y})")
+    res = ga._relocate_and_resave(None, "微信", "发送")
+    assert "视觉重定位" in res and "@ (300,400)" in res
+    assert saved[0]["app"] == "微信" and saved[0]["description"] == "发送" and saved[0]["x"] == 300
+
+
+def test_relocate_and_resave_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_visual_locate", lambda d: None)
+    res = ga._relocate_and_resave(None, "微信", "发送")
+    assert "视觉重新定位也失败" in res and "人工重新调教" in res
