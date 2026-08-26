@@ -186,6 +186,7 @@ def test_non_windows_degrades(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "支持 Windows" in ga.gui_scroll()
     assert "支持 Windows" in ga.gui_hotkey("ctrl+s")
     assert "支持 Windows" in ga.gui_operate("click", description="发送", window="微信")
+    assert "支持 Windows" in ga.gui_locate_visual("发送")
 
 
 # ── 截图 ─────────────────────────────────────────────
@@ -454,8 +455,11 @@ def test_operate_foreground_allowed_when_idle(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(ga, "_user_idle_seconds", lambda: 120)
     seen: dict = {}
     monkeypatch.setattr(ga, "gui_click", lambda *a, **kw: seen.update(kw) or "已点击")
-    res = ga.gui_operate("click", description="发送", window="微信", mode="foreground", verify=False)
+    res = ga.gui_operate(
+        "click", description="发送", window="微信", mode="foreground", x=100, y=200, verify=False
+    )
     assert seen.get("mode") == "foreground"
+    assert seen.get("x") == 100 and seen.get("y") == 200
     assert "已点击" in res
 
 
@@ -548,8 +552,11 @@ def test_operate_foreground_allowed_when_idle_unknown(monkeypatch: pytest.Monkey
     monkeypatch.setattr(ga, "_user_idle_seconds", lambda: None)
     seen: dict = {}
     monkeypatch.setattr(ga, "gui_click", lambda *a, **kw: seen.update(kw) or "已点击")
-    res = ga.gui_operate("click", description="发送", window="微信", mode="foreground", verify=False)
+    res = ga.gui_operate(
+        "click", description="发送", window="微信", mode="foreground", x=100, y=200, verify=False
+    )
     assert seen.get("mode") == "foreground"
+    assert seen.get("x") == 100 and seen.get("y") == 200
     assert "已点击" in res
 
 
@@ -584,3 +591,97 @@ def test_operate_audit_failure_does_not_block(monkeypatch: pytest.MonkeyPatch, t
     monkeypatch.setattr(ga, "_ACTION_LOG", blocker / "actions.log")
     res = ga.gui_operate("click", description="发送", window="微信", mode="silent", verify=True)
     assert "后台静默点击" in res
+
+
+# ── 阶段 3 增强：UI-TARS 视觉接管 ─────────────────────
+
+def test_parse_coords_variants() -> None:
+    assert ga._parse_coords("500,300") == (500, 300)
+    assert ga._parse_coords("中心坐标 (120, 80)") == (120, 80)
+    assert ga._parse_coords("坐标为：333，222") == (333, 222)
+    assert ga._parse_coords("找不到") is None
+    assert ga._parse_coords("") is None
+
+
+def test_extract_path_variants() -> None:
+    assert ga._extract_path("截图已保存: /tmp/x.png（10 字节）。") == "/tmp/x.png"
+    assert ga._extract_path("截图失败：boom") == ""
+    assert ga._extract_path("") == ""
+
+
+def test_visual_locate_uitars_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UI_TARS_BASE_URL", "http://localhost:8000")
+    monkeypatch.setattr(ga, "_uitars_locate", lambda endpoint, desc: (10, 20))
+    vision_called = {"n": 0}
+
+    def fake_vision(*a, **kw):
+        vision_called["n"] += 1
+        return "坐标 1,1"
+
+    fake = types.ModuleType("handlers.vision_analyze")
+    fake.vision_analyze = fake_vision
+    monkeypatch.setitem(sys.modules, "handlers.vision_analyze", fake)
+    assert ga._visual_locate("发送") == (10, 20)
+    assert vision_called["n"] == 0  # UI-TARS 命中不再走 qwen-vl
+
+
+def test_visual_locate_falls_back_to_qwenvl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_uitars_locate", lambda endpoint, desc: None)
+    monkeypatch.setattr(
+        ga, "gui_screenshot", lambda path="": "截图已保存: /tmp/x.png（1 字节）。"
+    )
+    fake = types.ModuleType("handlers.vision_analyze")
+    fake.vision_analyze = lambda image_ref="", prompt="": "目标中心：500,300"
+    monkeypatch.setitem(sys.modules, "handlers.vision_analyze", fake)
+    assert ga._visual_locate("发送") == (500, 300)
+
+
+def test_visual_locate_no_match_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_uitars_locate", lambda endpoint, desc: None)
+    monkeypatch.setattr(
+        ga, "gui_screenshot", lambda path="": "截图已保存: /tmp/x.png（1 字节）。"
+    )
+    fake = types.ModuleType("handlers.vision_analyze")
+    fake.vision_analyze = lambda image_ref="", prompt="": "找不到"
+    monkeypatch.setitem(sys.modules, "handlers.vision_analyze", fake)
+    assert ga._visual_locate("发送") is None
+
+
+def test_gui_locate_visual_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_visual_locate", lambda desc: (100, 200))
+    res = ga.gui_locate_visual("发送")
+    assert "视觉定位「发送」成功" in res and "(100,200)" in res
+
+
+def test_gui_locate_visual_requires_desc(monkeypatch: pytest.MonkeyPatch) -> None:
+    res = ga.gui_locate_visual("")
+    assert "请提供要定位的元素描述" in res
+
+
+def test_gui_locate_visual_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_visual_locate", lambda desc: None)
+    res = ga.gui_locate_visual("发送")
+    assert "视觉定位「发送」失败" in res
+
+
+def test_operate_visual_takeover_autofills_coords(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 控件定位不到 → auto 矩阵转前台 → 视觉接管补坐标
+    win = _Win("微信", controls=[_Control("别的东西")])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    monkeypatch.setattr(ga, "_user_idle_seconds", lambda: 120)
+    monkeypatch.setattr(ga, "_visual_locate", lambda desc: (300, 400))
+    seen: dict = {}
+    monkeypatch.setattr(ga, "gui_click", lambda *a, **kw: seen.update(kw) or "已点击")
+    res = ga.gui_operate("click", description="发送", window="微信", mode="auto", verify=False)
+    assert seen.get("mode") == "foreground"
+    assert seen.get("x") == 300 and seen.get("y") == 400
+    assert "视觉接管定位" in res and "(300,400)" in res
+
+
+def test_operate_visual_takeover_fail_stops(monkeypatch: pytest.MonkeyPatch) -> None:
+    win = _Win("微信", controls=[_Control("别的东西")])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    monkeypatch.setattr(ga, "_user_idle_seconds", lambda: 120)
+    monkeypatch.setattr(ga, "_visual_locate", lambda desc: None)
+    res = ga.gui_operate("click", description="发送", window="微信", mode="auto", verify=False)
+    assert "操作中止" in res and "视觉接管也找不到" in res

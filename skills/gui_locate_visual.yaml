@@ -1,0 +1,22 @@
+# GUI 自动化·视觉接管定位（N57c 增强，借鉴影刀 RPA + UI-TARS 视觉引擎）
+name: gui_locate_visual
+description: 视觉接管定位：截图后用视觉模型（qwen-vl，或配置的 UI-TARS）在屏幕里找目标元素并返回中心坐标。用于 pywinauto 定位不到的自绘界面/游戏/画布。视觉定位、看图找、看屏幕找、视觉找、眼睛找、定位不了时用时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["视觉定位", "看图找", "看屏幕找", "视觉找", "眼睛找", "用视觉定位", "看图点"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_locate_visual
+
+# 参数映射
+params:
+  description:
+    from: user_input
+    required: true
+  window:
+    from: user_input
+    required: false

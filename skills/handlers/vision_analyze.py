@@ -256,16 +256,18 @@ def _resource_to_data_uri(p: Path) -> tuple[str | None, str | None]:
         return None, f"（视觉理解：读取图片失败 - {exc}）"
 
 
-def vision_analyze(image_ref: str = "") -> str:
+def vision_analyze(image_ref: str = "", prompt: str = "") -> str:
     """视觉理解：分析本地图片 / 图片 URL / PDF / 表格(csv) / 录屏视频首帧，返回文字描述。
 
     Args:
         image_ref: 本地路径（相对项目根或绝对）：支持 .png/.jpg 等图片、
             .pdf（转首页图）、.csv（渲染成表格图）、.mp4/.mov/.mkv（抽首帧）；
             或 http(s) 图片 URL。
+        prompt: 自定义提示词（如「定位某元素返回坐标」）；留空用默认描述提示。
+            供 GUI 视觉接管（N57c，UI-TARS 增强）等结构化定位场景复用。
 
     Returns:
-        视觉模型返回的描述文本；任何失败返回可读错误提示（静默降级，不抛错）。
+        视觉模型返回的文本；任何失败返回可读错误提示（静默降级，不抛错）。
     """
     image_ref = (image_ref or "").strip()
     if not image_ref:
@@ -296,8 +298,9 @@ def vision_analyze(image_ref: str = "") -> str:
         if image_url is None:
             return conv_msg or "（视觉理解：无法把该文件转换为图片）"
 
+    used_prompt = prompt.strip() or DEFAULT_PROMPT
     try:
-        text = _call_vision(model, base_url, api_key, image_url, DEFAULT_PROMPT)
+        text = _call_vision(model, base_url, api_key, image_url, used_prompt)
     except Exception as exc:  # noqa: BLE001 - 模型调用失败转可读错误
         return f"（视觉理解失败：{exc}）"
     return text or "（视觉理解：模型返回为空）"

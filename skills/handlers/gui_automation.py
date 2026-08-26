@@ -6,14 +6,20 @@
 - ``gui_locate``：按窗口标题 + 控件描述定位元素，返回控件信息 + 坐标；
   定位不到时自动截图 + 复用 ``vision_analyze`` 视觉兜底
 
-阶段 2（N57b）鼠标键盘 + 元素操作（ADR-054）：
+阶段 2（N57b）鼠标键盘 + 元素操作：
 - ``gui_click``：点击元素（pywinauto 后台静默主力：UIA Invoke / client-side click，
   不抢鼠标键盘；失败降级 pyautogui 前台坐标）
 - ``gui_type``：输入文本（Edit 控件 ``set_edit_text`` 后台静默直写；否则前台 type_keys）
 - ``gui_scroll``：滚轮滚动（pyautogui 前台滚轮，坐标 / 元素 / 当前光标）
 - ``gui_hotkey``：发送快捷键（危险组合被安全闸拦截；按窗口或全局 pyautogui）
 
-设计（N57a/b，ADR-054）：
+阶段 3（N57c）组合闭环 + UI-TARS 视觉接管增强：
+- ``gui_operate``：截图 → 定位 → 操作 → 验证截图闭环；双模式并存（后台静默/
+  前台接管）+ 动态切换（auto 决策矩阵）+ 静默可见性（留痕）+ 安全闸
+- ``gui_locate_visual``：视觉接管定位（pywinauto 定位不到的自绘界面兜底）——
+  引擎优先配置的 UI-TARS 端点，兜底复用 qwen-vl 视觉模型返回目标中心坐标
+
+设计（N57a/b/c，ADR-054）：
 - Windows 优先（pywinauto 仅 Windows）；非 Windows 返回可读降级信息
 - 惰性导入 mss/pywinauto/pyautogui，缺依赖 / 失败静默降级，**绝不抛错**
   （对齐既有 handler「静默降级」惯例，ADR-007）
@@ -25,6 +31,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import re
 import time
@@ -644,6 +651,19 @@ def gui_operate(
                 f"避免人机抢鼠标键盘。可稍后再试，或改用 mode=silent 后台静默。"
             )
 
+    # 视觉接管（UI-TARS 增强）：前台无坐标时，用视觉模型补目标中心坐标
+    # （pywinauto 定位不到的自绘界面降级链）；找不到则停下问用户
+    if fmode == "foreground" and description.strip() and not (x or y):
+        vc = _visual_locate(description)
+        if vc:
+            x, y = vc
+            note = (f"{note} " if note else "") + f"视觉接管定位「{description}」@ ({x},{y})。"
+        else:
+            return (
+                f"操作中止：定位不到控件且视觉接管也找不到「{description}」。"
+                "请人工确认目标坐标（x/y 参数），或改用 mode=silent 后台静默。"
+            )
+
     # 静默可见性：操作前截图留痕
     shot_before = gui_screenshot() if verify else ""
 
@@ -666,3 +686,131 @@ def gui_operate(
     if verify:
         lines.append(f"已截图留痕（操作前后），动作日志：{_ACTION_LOG}")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ #
+# UI-TARS 视觉接管（N57c 增强，ADR-054 可选引擎）
+#   pywinauto 定位不到的自绘界面 → 视觉模型返回目标中心坐标 → 前台执行
+#   引擎优先级：配置的 UI-TARS 端点 → qwen-vl（复用 vision_analyze）
+# ------------------------------------------------------------------ #
+def _load_gui_cfg() -> dict:
+    """读取 config.yaml 的 gui 段（如 uitars_url）；读不到返回空 dict。"""
+    p = _ROOT / "config" / "config.yaml"
+    if not p.exists():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(p.open("r", encoding="utf-8")) or {}
+        return data.get("gui") or {}
+    except Exception:  # noqa: BLE001 - 配置读不到按未配置处理
+        return {}
+
+
+def _extract_path(msg: str) -> str:
+    """从 gui_screenshot 返回文本里解析保存路径；非「截图已保存」开头返回空。"""
+    if "截图已保存: " not in msg:
+        return ""
+    return msg.split("截图已保存: ", 1)[1].split("（", 1)[0].strip()
+
+
+def _parse_coords(text: str) -> tuple[int, int] | None:
+    """从视觉模型返回文本解析中心坐标 'x,y'（允许中文逗号/空格）；失败返回 None。"""
+    if not text:
+        return None
+    m = re.search(r"(\d{1,4})\s*[,，]\s*(\d{1,4})", text)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def _uitars_locate(endpoint: str, description: str) -> tuple[int, int] | None:
+    """调 UI-TARS 端点定位目标中心坐标（视觉接管引擎，可选增强）。
+
+    契约：POST {endpoint}，JSON {"screenshot": "<截图路径>", "goal": "<描述>"}，
+    期望返回 {"x": int, "y": int}（或含 x/y 的 action 对象）。
+    超时/非 JSON/缺 x,y → 返回 None（降级到 qwen-vl）。
+    """
+    try:
+        import urllib.request
+
+        shot = gui_screenshot()
+        path = _extract_path(shot)
+        if not path:
+            return None
+        payload = __import__("json").dumps({"screenshot": path, "goal": description}).encode("utf-8")
+        req = urllib.request.Request(
+            endpoint,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = __import__("json").loads(resp.read().decode("utf-8"))
+        if "x" in data and "y" in data:
+            return int(data["x"]), int(data["y"])
+    except Exception:  # noqa: BLE001 - UI-TARS 不可用/失败静默降级
+        return None
+    return None
+
+
+def _visual_locate(description: str) -> tuple[int, int] | None:
+    """视觉定位：返回目标元素中心坐标（屏幕坐标系）。
+
+    引擎优先级：
+    1. UI-TARS 端点（config gui.uitars_url 或环境变量 UI_TARS_BASE_URL）——可选增强；
+    2. qwen-vl 兜底（复用 vision_analyze + 结构化「返回坐标」prompt）。
+    任一失败返回 None（静默降级，不抛错）。
+    """
+    if not description.strip():
+        return None
+    uitars_url = os.environ.get("UI_TARS_BASE_URL") or _load_gui_cfg().get("uitars_url")
+    if uitars_url:
+        coords = _uitars_locate(str(uitars_url), description)
+        if coords:
+            return coords
+    # qwen-vl 兜底
+    try:
+        from handlers.vision_analyze import vision_analyze
+    except Exception:  # noqa: BLE001 - 缺依赖降级
+        return None
+    shot = gui_screenshot()
+    path = _extract_path(shot)
+    if not path:
+        return None
+    prompt = (
+        f"这是电脑屏幕截图。请在其中找到「{description}」这个元素（按钮/输入框/菜单等）。"
+        "只返回它中心的屏幕坐标，格式为两个整数、逗号分隔（例如：500,300）。"
+        "如果找不到，只回复：找不到"
+    )
+    try:
+        text = vision_analyze(path, prompt=prompt)
+    except Exception:  # noqa: BLE001 - 视觉调用失败降级
+        return None
+    return _parse_coords(text)
+
+
+def gui_locate_visual(description: str = "", window: str = "") -> str:
+    """视觉接管定位：截图 + 视觉模型（qwen-vl，或配置的 UI-TARS）返回目标中心坐标。
+
+    pywinauto 定位不到的自绘界面（游戏/定制控件/画布）时用视觉找目标；
+    与 gui_locate（UIA 定位）互补，构成「定位不到 → 视觉接管」的降级链。
+
+    Args:
+        description: 要定位的元素描述（如按钮/输入框文本）
+        window: 预留的窗口过滤参数（V1 全屏定位，窗口内裁剪留待增强）
+
+    Returns:
+        坐标或可读失败提示（静默降级，不抛错）。
+    """
+    if platform.system() != "Windows":
+        return _non_windows_msg()
+    if not description.strip():
+        return "视觉定位失败：请提供要定位的元素描述（如按钮/输入框文本）。"
+    coords = _visual_locate(description)
+    if coords is None:
+        return (
+            f"视觉定位「{description}」失败：视觉模型不可用或图中未找到该元素。"
+            "可先用 gui_screenshot 看屏确认，或提供目标坐标（x/y 参数）直接前台操作。"
+        )
+    return f"视觉定位「{description}」成功：中心坐标 ({coords[0]},{coords[1]})。"
