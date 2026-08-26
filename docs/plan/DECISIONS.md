@@ -762,3 +762,24 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **落地记录（W1 已完成，2026-08-25）**: `chuan/channels/wechat.py` `handle` 加 try/except 降级；`tests/test_wechat.py` 新增 `test_handle_dispatch_exception_degrades`。验收：14 passed ✓（原 13 + 新 1）。
 
 **落地记录（W3 已完成，2026-08-25）**: 深挖发现 `_await_result` 前缀剥除过宽——旧代码 `content.startswith("[") and "]" in content` 会匹配任何 `[...]` 开头的产出，误删 `[数据]`、`[Important]` 等正文标签。修复：改为只剥 `[<display>]` 和 `[<role>]` 两种已知角色包装前缀，其他方括号内容原样保留。`tests/test_team_orchestrator.py` 新增 `test_await_result_preserves_non_role_bracket_content`。验收：16 passed（原 15 + 新 1），wechat+orchestrator 合计 30 passed。
+
+## ADR-054: GUI 自动化（N57，借鉴影刀 RPA 能力，2026-08-25）
+
+**决策**: 补 chuan-os 缺的「无 API 软件操作」这条腿——让 agent 像影刀一样**看屏幕 → 定位 → 点击/输入**。落地为 `skills/gui_*` handler skill（挂在既有 skill 体系上，零新架构），分四阶段开发。**明确「接口优先」为默认**：GUI 只在 bash/MCP/opencode 都搞不定时作为降级通道。
+
+**分阶段**:
+- **阶段 1（N57a）截图 + 视觉定位**：`mss` 屏幕截图 → 复用 `vision_analyze`（qwen-vl，N50/N52 已有）→ 返回元素描述 + 坐标。产出 `gui_screenshot` / `gui_locate` skill。
+- **阶段 2（N57b）鼠标键盘模拟**：`pyautogui` 封装点击/输入/滚动/快捷键/拖拽。产出 `gui_click` / `gui_type` / `gui_scroll` / `gui_hotkey` skill。
+- **阶段 3（N57c）闭环 + 安全（关键）**：组合 `gui_operate`（截图 → 定位 → 操作 → 验证截图 闭环）。**安全闸**（借鉴影刀被劫持 = 电脑被劫持的教训，呼应 P4 机器绑定/自动锁屏）：
+  - 危险序列拦截（Ctrl+Alt+Del / 格式化 / 删除类）走既有 guard 审核
+  - 只允许本机操作、带超时上限、失败自动中止
+  - 每次操作前后自动截图留痕（审计，对齐 blackboard 落盘哲学）
+- **阶段 4（N57d）测试 + 文档**：单测 mock `mss`/`pyautogui`/vision 调用，验证定位→操作→验证链路 + 安全拦截；补 LEARNINGS。
+
+**技术选型**: `mss`（截图快、跨平台、纯 Python）+ `pyautogui`（鼠标键盘、跨平台）+ 复用 `vision_analyze`（视觉定位）+ 复用 `guard`（安全闸）。全为既有体系，无新架构。
+
+**反例（不做）**: 可视化流程设计器（agent 语言编排更高级，不退化回拖拽）；手机 App 自动化（范围太大）；应用市场（已有 ToolMarket）；把 GUI 当主通道（破坏「接口优先」稳定性哲学，界面一变就崩）。
+
+**理由**: 现实是 90% 的桌面软件没有 API（微信/飞书/业务系统），只能靠「看 + 点」；chuan-os 已具备视觉理解（vision_analyze）与语音全链路，只缺「截图 → 定位坐标 → 模拟鼠标键盘」这一环，地基是现成的。影刀 PRA（2025，个人版 RPA 助手，对话式让 AI 操作电脑）验证了该方向，但 GUI 层自动化天生脆（界面改版即崩），故**接口优先、GUI 兜底**，且安全前置。
+
+**落地记录（未开工，2026-08-25 仅列计划）**: 阶段 1–4 计划已列，待确认后逐步实施。
