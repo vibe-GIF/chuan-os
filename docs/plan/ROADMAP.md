@@ -348,4 +348,4 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P4 | ✅ 媒体生成（音乐程序化合成 V1 → **N56/ADR-052**；视频/图片后端 seedance/seedream 待接入，接口已留） | BaiLongma |
 | P4 | ✅ 声纹防欺骗（anti_spoof + enroll_speaker，V1 规则版 → **N54/ADR-049**；重模型后端 pyannote/ecapa 留待扩展） | 自研（voice） |
 | P4 | Electron 桌面壳 + 安装包 + 激活码（面向最终用户） | 两家 |
-| P3 | GUI 自动化（借鉴影刀 RPA 能力，补「无 API 软件操作」这条腿） → **N57/ADR-054**（阶段1 截图+视觉定位 mss→复用 vision_analyze；阶段2 鼠标键盘 pyautogui；阶段3 gui_operate 闭环+安全闸 guard/超时/截图留痕；阶段4 测试+文档。已列计划，未开工） | 影刀 |
+| P3 | GUI 自动化（借鉴影刀 RPA 能力，补「无 API 软件操作」这条腿） → **N57/ADR-054**（阶段1 截图+元素定位 mss→pywinauto 主/vision_analyze 视觉兜底；阶段2 pywinauto 元素操作主力+pyautogui 坐标兜底；阶段3 gui_operate 闭环+安全闸 guard/超时/截图留痕；阶段4 测试+文档。可选增强 UI-TARS（视觉 GUI agent，MCP 接入），备选 RPA Framework。已列计划+选型，未开工） | 影刀 |

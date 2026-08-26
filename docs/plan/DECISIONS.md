@@ -768,15 +768,15 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **决策**: 补 chuan-os 缺的「无 API 软件操作」这条腿——让 agent 像影刀一样**看屏幕 → 定位 → 点击/输入**。落地为 `skills/gui_*` handler skill（挂在既有 skill 体系上，零新架构），分四阶段开发。**明确「接口优先」为默认**：GUI 只在 bash/MCP/opencode 都搞不定时作为降级通道。
 
 **分阶段**:
-- **阶段 1（N57a）截图 + 视觉定位**：`mss` 屏幕截图 → 复用 `vision_analyze`（qwen-vl，N50/N52 已有）→ 返回元素描述 + 坐标。产出 `gui_screenshot` / `gui_locate` skill。
-- **阶段 2（N57b）鼠标键盘模拟**：`pyautogui` 封装点击/输入/滚动/快捷键/拖拽。产出 `gui_click` / `gui_type` / `gui_scroll` / `gui_hotkey` skill。
+- **阶段 1（N57a）截图 + 元素定位**：`mss` 屏幕截图 → **pywinauto 元素定位（主，控件属性/UIA，类影刀捕获元素）**；pywinauto 定位不了的自绘界面降级用 `vision_analyze`（qwen-vl，N50/N52 已有）视觉兜底 → 返回元素描述 + 坐标。产出 `gui_screenshot` / `gui_locate` skill。
+- **阶段 2（N57b）鼠标键盘 + 元素操作**：**pywinauto 主力**（点击/输入/窗口控制/控件选择）+ `pyautogui` 兜底（坐标模拟/滚动/快捷键/拖拽）。产出 `gui_click` / `gui_type` / `gui_scroll` / `gui_hotkey` skill。
 - **阶段 3（N57c）闭环 + 安全（关键）**：组合 `gui_operate`（截图 → 定位 → 操作 → 验证截图 闭环）。**安全闸**（借鉴影刀被劫持 = 电脑被劫持的教训，呼应 P4 机器绑定/自动锁屏）：
   - 危险序列拦截（Ctrl+Alt+Del / 格式化 / 删除类）走既有 guard 审核
   - 只允许本机操作、带超时上限、失败自动中止
   - 每次操作前后自动截图留痕（审计，对齐 blackboard 落盘哲学）
-- **阶段 4（N57d）测试 + 文档**：单测 mock `mss`/`pyautogui`/vision 调用，验证定位→操作→验证链路 + 安全拦截；补 LEARNINGS。
+- **阶段 4（N57d）测试 + 文档**：单测 mock `mss`/`pywinauto`/`pyautogui`/vision 调用，验证定位→操作→验证链路 + 安全拦截；补 LEARNINGS。
 
-**技术选型**: `mss`（截图快、跨平台、纯 Python）+ `pyautogui`（鼠标键盘、跨平台）+ 复用 `vision_analyze`（视觉定位）+ 复用 `guard`（安全闸）。全为既有体系，无新架构。
+**技术选型（2026-08-25 开源调研后定）**: **pywinauto 主力**（Windows 元素级 GUI 自动化，BSD，6.1k⭐，控件属性/UIA 定位，微信/钉钉等无 API 软件可操作，有 pywechat 实证）+ `mss`（截图）+ `pyautogui`（坐标兜底，MIT，跨平台）+ 复用 `vision_analyze`（视觉兜底）+ 复用 `guard`（安全闸）。**可选增强：UI-TARS**（字节开源 GUI agent，2B/7B/72B，截图→动作端到端，自带 MCP 可直接接 chuan，Apache）——pywinauto 定位不了的自绘界面时作为视觉操作引擎，跑不动 7B 显存则跳过。**备选：RPA Framework**（Robocorp，Apache，PyPI 33.x）——需要 Excel/PDF/网页全套时 `pip install rpaframework` 即得，不占当前。
 
 **反例（不做）**: 可视化流程设计器（agent 语言编排更高级，不退化回拖拽）；手机 App 自动化（范围太大）；应用市场（已有 ToolMarket）；把 GUI 当主通道（破坏「接口优先」稳定性哲学，界面一变就崩）。
 
