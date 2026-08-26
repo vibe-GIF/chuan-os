@@ -53,6 +53,9 @@ hud_overlay/windows/flutter/ephemeral/
 mic_check.png
 .workbuddy-ai/
 
+# 角色私有记忆（运行时自写，N20 GEPA / 会话蒸馏，不入库）
+personas/*/MEMORY.md
+
 # Flutter 构建产物（ephemeral / 插件符号链接）
 hud_overlay/**/ephemeral/
 hud_overlay/linux/flutter/ephemeral/
