@@ -798,3 +798,20 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
   - 配套 `skills/gui_operate.yaml`（触发词「帮我操作/替我点/帮我输入」等），SkillRegistry 共 21 个 skill 全部加载成功。单测新增 11 个（共 37 passed，覆盖决策矩阵、冲突拦截、安全闸、审计留痕）；真实环境冒烟通过（无效 action 拒绝、危险热键拦截、真实 idle 检测 93.9s、auto 矩阵定位不到转前台提示）。全量回归 762 passed / 2 skipped 无回退。
 - **阶段 4（N57d）✅ 已完成（边界测试部分）**：补 11 个边界/异常路径测试（共 48 passed）：`_clamp` 超时钳制（0→1、9999→300、非数字→300）、滚动格数下界（0→1）与非数字（→3）、热键归一化变体（大小写/空格/别名）、`_to_pywinauto_keys` 语法（`^%{DELETE}`/`{LWIN}E`/`{F5}`）、危险热键大小写变体拦截（Win + L / CTRL+ALT+DELETE）、热键目标窗口不存在降级列窗口、负数 index 定位不到、`gui_operate` 无目标拒绝、idle 未知（None）不拦前台、`verify=False` 不截图但动作日志常开（留痕与截图分层）、`_audit` 磁盘失败不阻断主流程（用不可写路径验证真实吞错）。测试驱动确认三处设计语义：`Escape` 归一化保留全拼（别名映射归 `_to_pywinauto_keys`）、`verify` 只关截图不关日志、留痕吞错用真实不可写路径验证。补 `docs/reference/LEARNINGS-2026-08-25-gui-automation.md`（6 条经验：UIA 三种点击语义、惰性 import 的 mock 姿势、留痕分层、mock 永不抛函数测不到吞错、pywinauto 动态 wrapper 别用 hasattr、热键安全闸规范化）。全量回归 773 passed / 2 skipped 无回退。
 - **UI-TARS 视觉接管增强（N57c+）✅ 已完成**：补「pywinauto 定位不到的自绘界面（游戏/定制控件/画布）」这条视觉降级链。给 `vision_analyze` 加可选 `prompt` 参数（向后兼容，供结构化「返回坐标」提示复用）；新增 `gui_locate_visual` handler + `_visual_locate` 引擎（**优先配置的 UI-TARS 端点**：config `gui.uitars_url` 或环境变量 `UI_TARS_BASE_URL`，POST 契约返回 x/y；**兜底复用 qwen-vl** 视觉模型结构化定位）+ `_parse_coords`（兼容中英文逗号/空格）+ `_extract_path`（解析截图路径）。接入 `gui_operate`：auto 决策矩阵定位不到转前台且无坐标时，自动视觉接管补目标中心坐标再执行；视觉也找不到 → 停下问用户（对齐 ADR「否则停下问用户」）。配套 `skills/gui_locate_visual.yaml`，SkillRegistry 共 22 个 skill 全部加载成功。单测新增 10 个（共 58 passed，覆盖坐标解析、路径提取、UI-TARS 优先/降级 qwen-vl、找不到返回 None、视觉定位成功/失败、operate 自动补坐标/找不到中止）；真实冒烟：skill 加载 OK、解析正确，**真实 qwen-vl 调用被阿里云账号欠费（Arrearage 400）阻断**——代码按 ADR-007 优雅降级为可读提示（key 已配置、管线正确，视觉模型可用后即生效）。全量回归 783 passed / 2 skipped 无回退。**N57 全链路至此全部完成（含可选视觉接管）。**
+
+## ADR-055: GUI 元素记忆库（N58，2026-08-26）
+
+**决策**: 给 GUI 自动化补「越用越不用调教」的记忆层——把「软件 + 控件描述 → 中心坐标/控件线索」沉淀为持久化元素库，下次定位/点击先查记忆再兜底重新定位。**对齐 blackboard 落盘哲学**：定位成功的物理坐标是可复用资产，不随会话丢失。
+
+**落地**（`skills/handlers/gui_memory.py`，`data/gui/elements.db` SQLite）:
+- 表 `gui_elements`（`app, description` UNIQUE），字段：窗口类/控件类型/控件文本/UIA 线索/中心坐标/命中数 hits/时间戳。
+- `gui_mem_save` upsert（同 app+description 冲突 → 更新坐标 + hits+1）；`gui_mem_lookup` app/description 模糊匹配、命中数与最近使用排序；`gui_mem_forget` 删（app/description 至少给一）；`gui_mem_list` 用户可看「学过什么」。
+- 集成：`gui_locate` 命中自动存记忆 + 提示「已记入元素记忆库」；`gui_locate` 未命中先查记忆返回「记忆命中」提示再走视觉兜底；`gui_click` UIA 定位不到但记忆有坐标 → 前台坐标点击兜底（「元素记忆命中」）。
+- 配套 skill：`gui_mem_list.yaml` / `gui_mem_forget.yaml`（查看/清理），SkillRegistry 共 24 个 skill 全部加载成功。
+- 单测 `tests/test_gui_memory.py` 12 个（save/lookup roundtrip、upsert 命中计数、模糊+优先级、无匹配、空描述拒绝、forget 各形态、list 渲染/空、DB 打不开静默降级）+ `test_gui_automation.py` 集成 4 个（locate 存记忆、locate 记忆命中跳过视觉、click 记忆坐标兜底、无记忆回 hint）。真实 DB 冒烟通过（存/查/列/删全链路，事后清理）。
+- 测试隔离：新增 `tests/conftest.py` autouse fixture 把 `_DB` 统一指向 tmp——**关键坑**：SkillRegistry 会把 `skills/` 加入 sys.path，使 `handlers.gui_memory`（生产路径，gui_automation 内懒加载用）与 `skills.handlers.gui_memory`（命名空间包路径，测试 import 用）成为**两个不同模块对象**、`_DB` 不互通；只补丁一个会继续污染真实 data/gui/elements.db。conftest 对两个对象同时补丁到同一 tmp DB。
+- 全量回归 798 passed / 2 skipped 无回退。
+
+**理由**: GUI 自动化天生脆（界面改版即崩），且每次都要重新定位很「费调教」；记忆库让常用操作收敛为「一次定位、永久复用」。SQLite 单文件零依赖，对齐 sessions.db/memory_fts.db 惯例。
+
+**反例（不做）**: 把坐标当唯一依据无条件信任（界面一动就点错，需 hits + 时间戳留痕可查）；存整张控件树（过大、易碎）；训练模型学界面布局（过重，记忆库已覆盖 80% 价值）。

@@ -16,6 +16,14 @@ from types import SimpleNamespace
 import pytest
 
 from skills.handlers import gui_automation as ga
+from skills.handlers import gui_memory as gm
+
+
+@pytest.fixture(autouse=True)
+def _isolate_mem_db(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """把 GUI 元素记忆库 DB 隔离到 tmp，避免真实 gui_locate/click 污染 data/gui/elements.db。"""
+    monkeypatch.setattr(gm, "_DB", tmp_path / "gui_mem_test.db")
+    yield
 
 
 # ── 测试替身 ─────────────────────────────────────────
@@ -685,3 +693,52 @@ def test_operate_visual_takeover_fail_stops(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(ga, "_visual_locate", lambda desc: None)
     res = ga.gui_operate("click", description="发送", window="微信", mode="auto", verify=False)
     assert "操作中止" in res and "视觉接管也找不到" in res
+
+
+# ── 阶段 3 增强：GUI 元素记忆库集成（N58） ───────────
+
+def test_locate_saves_memory_on_hit(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctl = _Control("发送", "Button")
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    saved: list = []
+    monkeypatch.setattr(ga, "_mem_save", lambda *a: saved.append(a))
+    res = ga.gui_locate("发送", "微信")
+    assert "已记入元素记忆库" in res
+    assert len(saved) == 1
+    # (win, window_keyword, description, ctl)
+    assert saved[0][1] == "微信" and saved[0][2] == "发送" and saved[0][3] is ctl
+
+
+def test_locate_miss_uses_memory_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    win = _Win("微信", controls=[_Control("别的东西")])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    monkeypatch.setattr(ga, "_mem_hint", lambda win, desc: "记忆命中：曾在 [微信] 定位到「发送」@ (60,35)")
+    shots = {"n": 0}
+
+    def boom_shot(path: str = ""):
+        shots["n"] += 1
+        raise RuntimeError("不应走到视觉兜底")
+
+    monkeypatch.setattr(ga, "gui_screenshot", boom_shot)
+    res = ga.gui_locate("发送", "微信")
+    assert "记忆命中" in res and "(60,35)" in res
+    assert shots["n"] == 0  # 记忆命中后不再走视觉兜底
+
+
+def test_click_memory_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    win = _Win("微信", controls=[_Control("别的东西")])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    monkeypatch.setattr(ga, "_mem_best_coords", lambda win, desc: (100, 200))
+    calls = _patch_pyautogui(monkeypatch)
+    res = ga.gui_click("发送", "微信")
+    assert calls["click"] == [(100, 200)]
+    assert "元素记忆命中" in res and "(100, 200)" in res
+
+
+def test_click_memory_fallback_none_returns_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    win = _Win("微信", controls=[_Control("别的东西")])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    monkeypatch.setattr(ga, "_mem_best_coords", lambda win, desc: None)
+    res = ga.gui_click("发送", "微信")
+    assert "未找到匹配" in res

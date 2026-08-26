@@ -1,0 +1,22 @@
+# GUI 元素记忆库·删除（N58，ADR-055）
+name: gui_mem_forget
+description: 删除 GUI 元素记忆库里的条目（软件界面改版/不再用该软件时清理，避免旧坐标误导）。忘掉、删除记忆、清理记忆、移除记忆条目时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["忘掉", "删除记忆", "清理记忆", "移除记忆", "忘记这个", "忘掉这个元素"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_memory
+  function: gui_mem_forget
+
+# 参数映射
+params:
+  app:
+    from: user_input
+    required: false
+  description:
+    from: user_input
+    required: false

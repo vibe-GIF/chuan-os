@@ -1,0 +1,22 @@
+# GUI 元素记忆库·查看（N58，ADR-055）
+name: gui_mem_list
+description: 查看 GUI 元素记忆库——列出已学过的「软件+控件→坐标」条目（自动沉淀，越用越准）。查看元素记忆、学过什么、记忆库、有哪些记住的元素时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["元素记忆", "记忆库", "学过什么", "记住的元素", "查看记忆", "有哪些记住", "gui记忆"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_memory
+  function: gui_mem_list
+
+# 参数映射
+params:
+  app:
+    from: user_input
+    required: false
+  top:
+    from: user_input
+    required: false

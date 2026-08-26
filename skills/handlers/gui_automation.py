@@ -204,9 +204,16 @@ def gui_locate(description: str = "", window: str = "") -> str:
         lines = [f"在窗口「{_window_desc(win)}」定位到 {len(hits)} 个匹配控件:"] + [
             f"- {_control_desc(c)}" for c in hits
         ]
+        _mem_save(win, window, description, hits[0])  # 记入元素记忆库（失败静默）
+        lines.append("（首个匹配已记入元素记忆库，下次可直接命中）")
         return "\n".join(lines)
 
-    # 定位不到 → 视觉兜底：截图 + vision_analyze 分析
+    # 定位不到 → 先查元素记忆库（越用越不用重新定位）
+    mem = _mem_hint(win, description)
+    if mem:
+        return f"在窗口「{_window_desc(win)}」未找到匹配「{description}」的控件。{mem}"
+
+    # 定位不到且无记忆 → 视觉兜底：截图 + vision_analyze 分析
     shot = gui_screenshot()
     try:
         from handlers.vision_analyze import vision_analyze
@@ -316,6 +323,10 @@ def gui_click(
         return "点击失败：未安装 pywinauto（pip install pywinauto）。"
     win, ctl, hint = _resolve_control(desktop, window, description, index)
     if ctl is None:
+        # 记忆兜底：UIA 定位不到但记忆库有坐标 → 前台坐标点击（越用越不用重新定位）
+        mem = _mem_best_coords(win, description)
+        if mem:
+            return _click_xy(mem[0], mem[1]) + f"（元素记忆命中「{description}」@ {mem}）"
         return hint
     # 后台静默（silent / auto 优先）
     if mode in ("auto", "silent"):
@@ -814,3 +825,68 @@ def gui_locate_visual(description: str = "", window: str = "") -> str:
             "可先用 gui_screenshot 看屏确认，或提供目标坐标（x/y 参数）直接前台操作。"
         )
     return f"视觉定位「{description}」成功：中心坐标 ({coords[0]},{coords[1]})。"
+
+
+# ------------------------------------------------------------------ #
+# GUI 元素记忆库集成（N58，ADR-055）
+#   定位成功自动存记忆；定位不到自动查记忆兜底 —— 越用越不用重新定位
+# ------------------------------------------------------------------ #
+def _mem_save(win, window_keyword: str, description: str, ctl) -> None:
+    """定位成功后把「app + 描述 → 坐标/控件线索」写入元素记忆库（失败静默）。"""
+    try:
+        from handlers.gui_memory import gui_mem_save
+
+        r = ctl.rectangle()
+        app = (window_keyword or "").strip()
+        if not app and win is not None:
+            app = win.window_text() or ""
+        gui_mem_save(
+            app=app,
+            description=description,
+            window_class=win.class_name() if win is not None else "",
+            control_type=ctl.friendly_class_name() or "",
+            control_text=ctl.window_text() or "",
+            x=r.left + r.width // 2,
+            y=r.top + r.height // 2,
+        )
+    except Exception:  # noqa: BLE001 - 记忆写失败不阻断定位
+        return
+
+
+def _mem_hint(win, description: str) -> str:
+    """定位不到时查记忆，返回「记忆命中」提示（无则空串）。"""
+    try:
+        from handlers.gui_memory import gui_mem_lookup
+
+        app = win.window_text() if win is not None else ""
+        rows = gui_mem_lookup(app=app, description=description, top=1)
+        if not rows and app:
+            rows = gui_mem_lookup(description=description, top=1)
+        if rows:
+            r = rows[0]
+            return (
+                f"\n记忆命中：曾在 [{r['app']}] 定位到「{r['description']}」"
+                f"@ ({r['x']},{r['y']})（{r['control_type'] or '?'}，×{r['hits']}）。"
+                "可用 gui_click 前台坐标直接操作，或 gui_locate_visual 复核。"
+            )
+    except Exception:  # noqa: BLE001 - 记忆读失败按无记忆处理
+        pass
+    return ""
+
+
+def _mem_best_coords(win, description: str) -> tuple[int, int] | None:
+    """查记忆里的目标中心坐标；无则 None。供 gui_click 未定位到时兜底。"""
+    if not description.strip():
+        return None
+    try:
+        from handlers.gui_memory import gui_mem_lookup
+
+        app = win.window_text() if win is not None else ""
+        rows = gui_mem_lookup(app=app, description=description, top=1)
+        if not rows and app:
+            rows = gui_mem_lookup(description=description, top=1)
+        if rows and rows[0]["x"] and rows[0]["y"]:
+            return int(rows[0]["x"]), int(rows[0]["y"])
+    except Exception:  # noqa: BLE001 - 记忆读失败按无记忆处理
+        return None
+    return None

@@ -67,3 +67,19 @@
 **修复**：归一化只做大小写/空格/顺序标准化（安全匹配用），键名别名（esc/escape、del/delete）由 `_to_pywinauto_keys` 转换层统一映射。
 
 **教训**：安全校验的「规范化」和「语义映射」是两个职责——前者只管字符形态，后者管同义词展开；混在一起会让拦截规则和转换规则互相污染。
+
+---
+
+## 7. SkillRegistry 把 skills/ 加 sys.path → `handlers.*` 与 `skills.handlers.*` 是两个模块对象
+
+**现象**（N58 元素记忆库测试）：真实 DB `data/gui/elements.db` 被测试污染，fixture 明明把 `_DB` 补丁到了 tmp，却仍拦截不住；单独跑 GUI 测试通过、全量跑就挂。
+
+**根因**：`SkillRegistry.__init__`（skill_loader.py）会把 `skills/` 目录插入 `sys.path`（为让 `handlers.xxx` 可导入）。于是同一个 `skills/handlers/gui_memory.py` 文件可能被加载成**两个独立模块对象**：
+- `handlers.gui_memory`——gui_automation 内 `from handlers.gui_memory import ...` 懒加载的（生产路径，走 skills/ 入 path）；
+- `skills.handlers.gui_memory`——测试里 `from skills.handlers import gui_memory` 的（命名空间包路径，走项目根）。
+
+两者 `_DB` 模块全局**不互通**。只补丁 `skills.handlers.gui_memory._DB` 时，gui_automation 实际用的是 `handlers.gui_memory`（真实路径）→ 全量跑时某个测试先实例化了 SkillRegistry，`skills/` 入 path，内存才真正启用并写真实 DB（单独跑 GUI 测试没实例化 SkillRegistry，`from handlers.gui_memory import` 直接 ImportError 被静默吞掉，反而全绿）。
+
+**修复**（`tests/conftest.py`）：autouse fixture 对**两个模块对象**的 `_DB` 同时补丁到同一个 tmp DB；conftest 顶部显式 `import handlers.gui_memory` + `import skills.handlers.gui_memory` 先拿到两个对象。
+
+**教训**：命名空间包 + sys.path 动态插入会制造「同文件双模块对象」的幻影隔离。凡是「生产代码懒导入 A，测试代码导入 B」的配对，必须验证 `sys.modules` 里是不是同一个对象；DB/全局状态类模块尤其要防——fixture 补丁对象 ≠ 被测代码实际用的对象，测试就形同虚设（且单测/全量行为不一致正是此坑的警报）。
