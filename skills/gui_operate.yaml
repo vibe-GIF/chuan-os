@@ -1,0 +1,49 @@
+# GUI 自动化·组合操作闭环（N57c，借鉴影刀 RPA 能力）
+name: gui_operate
+description: 组合操作闭环：截图→定位→操作→验证截图。支持点击/输入/滚动/快捷键，自动判定后台静默或前台接管（可手动指定静默/接管），操作前后自动截图留痕，危险热键被安全闸拦截。帮我操作、替我点、帮我点一下、帮我输入、帮我滚、替我按下、操作电脑时用。
+type: handler
+
+# 触发条件
+trigger:
+  keywords: ["帮我操作", "替我点", "帮我点一下", "帮我输入", "帮我滚动", "替我按下", "操作电脑", "帮我打开软件", "帮我填表", "帮我保存", "帮我关闭"]
+
+# 调用的本地 handler
+handler:
+  module: handlers.gui_automation
+  function: gui_operate
+
+# 参数映射
+params:
+  action:
+    from: user_input
+    required: true
+  description:
+    from: user_input
+    required: false
+  window:
+    from: user_input
+    required: false
+  text:
+    from: user_input
+    required: false
+  mode:
+    from: user_input
+    required: false
+  direction:
+    from: user_input
+    required: false
+  amount:
+    from: user_input
+    required: false
+  keys:
+    from: user_input
+    required: false
+  x:
+    from: user_input
+    required: false
+  y:
+    from: user_input
+    required: false
+  verify:
+    from: user_input
+    required: false

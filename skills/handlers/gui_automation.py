@@ -276,7 +276,14 @@ def _click_xy(x: int, y: int) -> str:
         return f"点击失败：{exc}"
 
 
-def gui_click(description: str = "", window: str = "", index: int = 0, x: int = 0, y: int = 0) -> str:
+def gui_click(
+    description: str = "",
+    window: str = "",
+    index: int = 0,
+    x: int = 0,
+    y: int = 0,
+    mode: str = "auto",
+) -> str:
     """点击元素。
 
     Args:
@@ -284,14 +291,18 @@ def gui_click(description: str = "", window: str = "", index: int = 0, x: int = 
         window: 窗口标题关键词
         index: 命中多个控件时取第几个（0 起）
         x/y: 前台坐标兜底（不依赖定位）
+        mode: auto（默认，静默优先→前台兜底）/ silent（仅后台静默，失败即报）/
+            foreground（强制前台真实鼠标）——「意图 + 执行器」的选执行器层（N57c）
 
-    默认后台静默（UIA Invoke / client-side click，不抢鼠标键盘）；定位不到控件
-    或控件不支持静默激活时，降级为前台真实鼠标（pyautogui / click_input）。
+    默认后台静默（UIA Invoke / client-side click，不抢鼠标键盘）；auto 模式下
+    控件不支持静默激活时，降级为前台真实鼠标（pyautogui / click_input）。
     """
     if platform.system() != "Windows":
         return _non_windows_msg()
     # 纯坐标路径：无需窗口/控件
     if not description.strip() and (x or y):
+        if mode == "silent":
+            return "静默模式需要控件（description+window），不能只给坐标；可改用 mode=foreground。"
         return _click_xy(x, y)
     desktop = _desktop()
     if desktop is None:
@@ -299,11 +310,14 @@ def gui_click(description: str = "", window: str = "", index: int = 0, x: int = 
     win, ctl, hint = _resolve_control(desktop, window, description, index)
     if ctl is None:
         return hint
-    # 后台静默（优先）
-    ok, how = _silent_activate(ctl)
-    if ok:
-        return f"已后台静默点击「{_control_desc(ctl)}」（{how}，未抢焦点）。"
-    # 前台兜底：真实鼠标点元素中心
+    # 后台静默（silent / auto 优先）
+    if mode in ("auto", "silent"):
+        ok, how = _silent_activate(ctl)
+        if ok:
+            return f"已后台静默点击「{_control_desc(ctl)}」（{how}，未抢焦点）。"
+        if mode == "silent":
+            return f"后台静默点击失败：控件不支持 UIA Invoke/click（{_control_desc(ctl)}）。可改用 mode=foreground 接管屏幕。"
+    # 前台（foreground / auto 兜底）：真实鼠标点元素中心
     try:
         r = ctl.rectangle()
         return _click_xy(r.left + r.width // 2, r.top + r.height // 2)
@@ -311,7 +325,13 @@ def gui_click(description: str = "", window: str = "", index: int = 0, x: int = 
         return f"点击失败：{exc}"
 
 
-def gui_type(text: str = "", description: str = "", window: str = "", index: int = 0) -> str:
+def gui_type(
+    text: str = "",
+    description: str = "",
+    window: str = "",
+    index: int = 0,
+    mode: str = "auto",
+) -> str:
     """向元素输入文本。
 
     Args:
@@ -319,9 +339,10 @@ def gui_type(text: str = "", description: str = "", window: str = "", index: int
         description: 控件描述（输入框文本等）
         window: 窗口标题关键词
         index: 命中多个控件时取第几个（0 起）
+        mode: auto（默认，静默直写→前台键盘兜底）/ silent（仅静默直写）/ foreground（强制前台键盘）
 
-    Edit 控件走 ``set_edit_text`` 后台静默直写（不抢焦点）；其余控件降级为
-    ``set_focus + type_keys`` 前台键盘输入。
+    Edit 控件走 ``set_edit_text`` 后台静默直写（不抢焦点）；auto 模式下其余控件
+    降级为 ``set_focus + type_keys`` 前台键盘输入。
     """
     if platform.system() != "Windows":
         return _non_windows_msg()
@@ -333,15 +354,18 @@ def gui_type(text: str = "", description: str = "", window: str = "", index: int
     win, ctl, hint = _resolve_control(desktop, window, description, index)
     if ctl is None:
         return hint
-    # 编辑框：后台静默直写（不抢焦点）
-    try:
-        setter = getattr(ctl, "set_edit_text", None)
-        if callable(setter):
-            setter(text)
-            return f"已后台静默输入到「{_control_desc(ctl)}」（set_edit_text，未抢焦点）。"
-    except Exception:  # noqa: BLE001 - 非标准 Edit 则走前台键盘
-        pass
-    # 前台兜底：激活控件 + type_keys
+    # 编辑框：后台静默直写（silent / auto 优先，不抢焦点）
+    if mode in ("auto", "silent"):
+        try:
+            setter = getattr(ctl, "set_edit_text", None)
+            if callable(setter):
+                setter(text)
+                return f"已后台静默输入到「{_control_desc(ctl)}」（set_edit_text，未抢焦点）。"
+        except Exception:  # noqa: BLE001 - 非标准 Edit 则走前台键盘
+            pass
+        if mode == "silent":
+            return f"后台静默输入失败：控件非标准 Edit（{_control_desc(ctl)}）。可改用 mode=foreground 接管屏幕。"
+    # 前台（foreground / auto 兜底）：激活控件 + type_keys
     try:
         ctl.set_focus()
         ctl.type_keys(text)
@@ -489,3 +513,156 @@ def gui_hotkey(keys: str = "", window: str = "") -> str:
         return f"已发送热键 {keys}（前台）。"
     except Exception as exc:  # noqa: BLE001 - 静默降级
         return f"热键失败：{exc}"
+
+
+# ------------------------------------------------------------------ #
+# 阶段 3（N57c）：gui_operate 组合闭环
+#   截图 → 定位 → 操作 → 验证截图；双模式并存 + 动态切换 + 安全闸
+# ------------------------------------------------------------------ #
+_ACTION_LOG = _DEFAULT_OUT_DIR / "actions.log"
+_IDLE_THRESHOLD = 10  # 前台接管需用户空闲 ≥10s，避免人机抢鼠标键盘
+
+
+def _clamp(val, lo: int, hi: int) -> int:
+    try:
+        return max(lo, min(int(val), hi))
+    except (TypeError, ValueError):
+        return hi
+
+
+def _user_idle_seconds() -> float | None:
+    """系统级用户空闲秒数（GetLastInputInfo）；非 Windows / 失败返回 None。"""
+    try:
+        import ctypes
+
+        class _LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+        lii = _LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(_LASTINPUTINFO)
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+            return None
+        return (ctypes.windll.kernel32.GetTickCount() - lii.dwTime) / 1000.0
+    except Exception:  # noqa: BLE001 - 取不到空闲时间按「未知」处理（不拦）
+        return None
+
+
+def _audit(action: str, detail: str, shot_before: str, shot_after: str) -> None:
+    """动作留痕：追加一行到 data/gui/actions.log（对齐 blackboard 落盘哲学）。"""
+    try:
+        _ACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with _ACTION_LOG.open("a", encoding="utf-8") as f:
+            f.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {action} | {detail} | "
+                f"before={shot_before} | after={shot_after}\n"
+            )
+    except Exception:  # noqa: BLE001 - 留痕失败不阻断主流程
+        return
+
+
+def _resolve_operate_mode(action: str, mode: str, description: str, window: str, x: int, y: int):
+    """动态切换决策矩阵（N57c）：返回 (最终模式, 提示)。"""
+    m = str(mode).strip().lower()
+    if m in ("foreground", "前台", "接管", "接管屏幕", "看着", "看着你"):
+        return "foreground", ""
+    if m in ("silent", "静默", "后台"):
+        return "silent", ""
+    # auto（默认）：能定位 → 静默；定位不到 → 前台接管；否则停下问用户
+    if action in ("scroll", "hotkey"):
+        return "foreground", "滚轮/热键天然前台执行。"
+    if description.strip() and window:
+        desktop = _desktop()
+        if desktop is not None:
+            win, ctl, _hint = _resolve_control(desktop, window, description, 0)
+            if ctl is not None:
+                return "silent", ""
+        if x or y:
+            return "foreground", "定位不到控件，已按给定坐标前台接管。"
+        return "foreground", "定位不到控件（可能是自绘界面），需前台接管；若用户正用电脑会先停下确认。"
+    if x or y:
+        return "foreground", "未提供控件描述，按给定坐标前台接管。"
+    return "foreground", "缺少目标（description+window 或 x/y 坐标）。"
+
+
+def gui_operate(
+    action: str = "",
+    description: str = "",
+    window: str = "",
+    text: str = "",
+    mode: str = "auto",
+    direction: str = "down",
+    amount: int = 3,
+    keys: str = "",
+    x: int = 0,
+    y: int = 0,
+    verify: bool = True,
+    timeout: int = 30,
+) -> str:
+    """组合操作闭环：截图 → 定位 → 操作 → 验证截图（N57c，ADR-054 阶段 3）。
+
+    Args:
+        action: click / type / scroll / hotkey
+        description/window: 目标控件（定位）
+        text: type 的内容
+        mode: auto（默认，决策矩阵自动切换）/ silent（强制后台静默）/
+            foreground（强制前台接管屏幕）
+        direction/amount: scroll 参数；keys: hotkey 组合
+        x/y: 前台坐标兜底
+        verify: 操作前后自动截图留痕（默认开）
+        timeout: 超时上限（1-300s，钳制）
+
+    双模式并存 + 动态切换 + 静默可见性（留痕）+ 安全闸（危险热键拦截 /
+    前台接管先查用户空闲冲突 / 超时钳制）。
+    """
+    if platform.system() != "Windows":
+        return _non_windows_msg()
+    action = str(action).strip().lower()
+    valid = {"click", "type", "scroll", "hotkey"}
+    if action not in valid:
+        return f"操作失败：不支持的 action「{action or '(空)'}」，可选 {sorted(valid)}。"
+    if action != "hotkey" and not (description.strip() or window or x or y):
+        return "操作失败：请提供目标（控件描述+窗口，或 x/y 坐标）。"
+    if action == "type" and not text:
+        return "操作失败：type 需提供 text 内容。"
+    if action == "hotkey" and not keys:
+        return "操作失败：hotkey 需提供 keys 组合。"
+    _timeout = _clamp(timeout, 1, 300)
+
+    # 安全闸：危险热键早拦截（governed by ADR-054）
+    if action == "hotkey" and _normalize_hotkey(keys) in _DANGEROUS_HOTKEYS:
+        return f"操作被安全闸拦截：热键「{keys}」为危险序列，请走人工确认。"
+
+    # 动态切换决策矩阵
+    fmode, note = _resolve_operate_mode(action, mode, description, window, x, y)
+
+    # 安全闸：前台接管前冲突检测（避免人机抢鼠标键盘）
+    if fmode == "foreground":
+        idle = _user_idle_seconds()
+        if idle is not None and idle < _IDLE_THRESHOLD:
+            return (
+                f"接管屏幕被拒绝：检测到用户正活跃（{idle:.0f}s 前有输入），"
+                f"避免人机抢鼠标键盘。可稍后再试，或改用 mode=silent 后台静默。"
+            )
+
+    # 静默可见性：操作前截图留痕
+    shot_before = gui_screenshot() if verify else ""
+
+    if action == "click":
+        result = gui_click(description, window, x=x, y=y, mode=fmode)
+    elif action == "type":
+        result = gui_type(text, description, window, mode=fmode)
+    elif action == "scroll":
+        result = gui_scroll(direction, amount, x=x, y=y, window=window, description=description)
+    else:  # hotkey
+        result = gui_hotkey(keys, window=window)
+
+    # 静默可见性：操作后截图留痕 + 动作日志
+    shot_after = gui_screenshot() if verify else ""
+    _audit(action, f"mode={fmode} timeout={_timeout} target={description or (x, y)} note={note or '-'}", shot_before, shot_after)
+
+    lines = [result]
+    if note:
+        lines.append(f"提示：{note}")
+    if verify:
+        lines.append(f"已截图留痕（操作前后），动作日志：{_ACTION_LOG}")
+    return "\n".join(lines)

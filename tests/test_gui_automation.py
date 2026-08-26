@@ -185,6 +185,7 @@ def test_non_windows_degrades(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "支持 Windows" in ga.gui_type("hi", "输入框", "微信")
     assert "支持 Windows" in ga.gui_scroll()
     assert "支持 Windows" in ga.gui_hotkey("ctrl+s")
+    assert "支持 Windows" in ga.gui_operate("click", description="发送", window="微信")
 
 
 # ── 截图 ─────────────────────────────────────────────
@@ -395,3 +396,94 @@ def test_hotkey_to_window(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_hotkey_requires_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     res = ga.gui_hotkey("")
     assert "请提供按键组合" in res
+
+
+# ── 阶段 2 执行器：mode 参数 ─────────────────────────
+
+def test_click_silent_mode_no_foreground_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctl = _Control("发送", "Button", silent_ok=False)
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    res = ga.gui_click("发送", "微信", mode="silent")
+    assert "后台静默点击失败" in res and "foreground" in res
+
+
+def test_type_silent_mode_no_foreground_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctl = _Control("输入框", "Edit", silent_ok=False)
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    res = ga.gui_type("hi", "输入框", "微信", mode="silent")
+    assert "后台静默输入失败" in res and "foreground" in res
+
+
+# ── 阶段 3：gui_operate 闭环 ─────────────────────────
+
+def test_operate_invalid_action() -> None:
+    res = ga.gui_operate("fly")
+    assert "不支持的 action" in res and "click" in res
+
+
+def test_operate_requires_target() -> None:
+    res = ga.gui_operate("click")
+    assert "请提供目标" in res
+
+
+def test_operate_type_requires_text() -> None:
+    res = ga.gui_operate("type", description="输入框", window="微信")
+    assert "需提供 text" in res
+
+
+def test_operate_auto_picks_silent_when_located(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctl = _Control("发送", "Button", silent_ok=True)
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    seen: dict = {}
+    monkeypatch.setattr(ga, "gui_click", lambda *a, **kw: seen.update(kw) or "已点击")
+    res = ga.gui_operate("click", description="发送", window="微信", mode="auto", verify=False)
+    assert seen.get("mode") == "silent"
+    assert "已点击" in res
+
+
+def test_operate_foreground_conflict_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_user_idle_seconds", lambda: 2)
+    res = ga.gui_operate("click", description="发送", window="微信", mode="foreground", verify=False)
+    assert "接管屏幕被拒绝" in res and "人机抢鼠标键盘" in res
+
+
+def test_operate_foreground_allowed_when_idle(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_user_idle_seconds", lambda: 120)
+    seen: dict = {}
+    monkeypatch.setattr(ga, "gui_click", lambda *a, **kw: seen.update(kw) or "已点击")
+    res = ga.gui_operate("click", description="发送", window="微信", mode="foreground", verify=False)
+    assert seen.get("mode") == "foreground"
+    assert "已点击" in res
+
+
+def test_operate_hotkey_dangerous_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    res = ga.gui_operate("hotkey", keys="ctrl+alt+del")
+    assert "安全闸拦截" in res
+
+
+def test_operate_scroll_auto_foreground(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_user_idle_seconds", lambda: None)
+    seen: dict = {}
+    monkeypatch.setattr(ga, "gui_scroll", lambda *a, **kw: seen.update(kw) or "已滚动")
+    res = ga.gui_operate("scroll", x=10, y=10, verify=False)
+    assert seen.get("x") == 10
+    assert "已滚动" in res
+
+
+def test_operate_audits_and_verifies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    ctl = _Control("发送", "Button", silent_ok=True)
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    shot = tmp_path / "shot.png"
+    shot.write_bytes(b"X")
+    monkeypatch.setattr(ga, "gui_screenshot", lambda path="": f"截图已保存: {shot}（1 字节）。")
+    log = tmp_path / "actions.log"
+    monkeypatch.setattr(ga, "_ACTION_LOG", log)
+    res = ga.gui_operate("click", description="发送", window="微信", mode="silent", verify=True)
+    assert "后台静默点击" in res
+    assert "留痕" in res
+    content = log.read_text(encoding="utf-8")
+    assert "click" in content and "before=" in content and "after=" in content
