@@ -1144,3 +1144,72 @@ async def test_dispatch_does_not_reclaim_without_pool_config() -> None:
                          SubTask(id="s2", description="查B")])
     await role.dispatch("今天天气如何")
     assert role.agent_count() == 3  # worker0/worker1/default 都保留
+
+
+# ── 悬空 tool_calls 历史修复（dispatch 前置修）──────────────────────
+
+class _RepairableAgent(FakeAgent):
+    """带 _repair_history 的 FakeAgent 替身——记录被调用的 thread_id。"""
+
+    def __init__(self, name: str = "repair_agent") -> None:
+        super().__init__(name=name)
+        self.repairs: list[str] = []
+
+    async def _repair_history(self, config: dict[str, Any]) -> None:
+        self.repairs.append(config["configurable"]["thread_id"])
+
+
+@pytest.mark.asyncio
+async def test_ensure_history_ok_calls_agent_repair_history() -> None:
+    """PersonaRole._ensure_agent_history_ok 调 BuiltinAgent 型 agent 的 _repair_history
+    并透传 thread_id；无此方法的 agent 直接跳过不报错。"""
+    rep = _RepairableAgent()
+    await PersonaRole._ensure_agent_history_ok(rep, "t_abc")
+    assert rep.repairs == ["t_abc"]
+
+    plain = FakeAgent()
+    await PersonaRole._ensure_agent_history_ok(plain, "t_xyz")  # 不应抛错
+
+
+@pytest.mark.asyncio
+async def test_ensure_history_ok_repair_failure_is_silent() -> None:
+    """agent._repair_history 抛错 → 静默吞，不影响上层。"""
+
+    class _BoomAgent(FakeAgent):
+        async def _repair_history(self, config: dict[str, Any]) -> None:
+            raise RuntimeError("checkpointer gone")
+
+    await PersonaRole._ensure_agent_history_ok(_BoomAgent(), "t_boom")
+
+
+@pytest.mark.asyncio
+async def test_dispatch_single_agent_runs_history_repair() -> None:
+    """单 agent 路径（阶段1 兜底）：dispatch 先 _repair_history(session_id) 再 run。"""
+    role, pool = _role()
+    # 覆盖 _resolve_tier_instance 返回可观测的 repairable agent
+    agent = _RepairableAgent()
+    pool.default = agent  # type: ignore[assignment]
+    await role.dispatch("你好", session_id="sess_default_repair")
+    assert agent.repairs == ["sess_default_repair"]
+    assert agent.calls  # run 真正执行了
+    assert agent.calls[0][1] and agent.calls[0][1].get("thread_id") == "sess_default_repair"
+
+
+@pytest.mark.asyncio
+async def test_subtask_attempt_runs_history_repair_before_run() -> None:
+    """多子任务路径：_run_subtask 每次 attempt 先修对应 thread，再 agent.run。
+
+    直接构造子任务并执行（不走规划模型 → 规划输出/解析不确定性），
+    验证每次 attempt 前 _ensure_agent_history_ok 的 thread_id 正确。"""
+    role, pool = _role()
+    agent = _RepairableAgent()
+    pool.default = agent  # type: ignore[assignment]
+    await role._run_subtask(
+        SubTask(id="s42", description="查天气", depends_on=[]),
+        results={}, session_id="sess_x", wave=1, task="总任务",
+    )
+    # subtask 的 thread 格式为 session:plan:st.id:a<attempt>，首次 attempt=0
+    assert any(":s42:a0" in t for t in agent.repairs)
+    # run 的 context 里 thread_id 也一致
+    threads = {c[1].get("thread_id") for c in agent.calls if c[1]}
+    assert any(":s42:a0" in t for t in threads)

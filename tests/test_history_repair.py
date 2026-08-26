@@ -136,3 +136,64 @@ async def test_run_calls_repair_before_invoke() -> None:
     result = await agent.run("任务", {"thread_id": "t"})
     assert order == ["get_state", "invoke"]
     assert result.content == "ok"
+
+
+# ── 删 checkpoint 策略（2026-08-25 改进）──────────────────────
+
+
+class _FakeConn:
+    """模拟 aiosqlite.Connection：记录 execute/commit。"""
+
+    def __init__(self) -> None:
+        self.executed: list[tuple[str, tuple]] = []
+        self.committed = 0
+
+    async def execute(self, sql: str, params: tuple = ()) -> Any:
+        self.executed.append((sql, params))
+        class _Cur:
+            rowcount = 1
+        return _Cur()
+
+    async def commit(self) -> None:
+        self.committed += 1
+
+
+class _FakeGraphWithCheckpointer(_FakeGraph):
+    """带 checkpointer.conn 的 FakeGraph，走删 checkpoint 路径。"""
+
+    def __init__(self, messages: list[Any]) -> None:
+        super().__init__(messages)
+        self.conn = _FakeConn()
+        self.checkpointer = type("CP", (), {"conn": self.conn})()
+
+
+@pytest.mark.asyncio
+async def test_repair_history_deletes_dirty_checkpoint() -> None:
+    """有 conn 时，首选删最新 checkpoint 而非追加 ToolMessage。"""
+    ai = AIMessage(
+        "",
+        tool_calls=[{"name": "read_role_memory", "args": {}, "id": "call_x"}],
+    )
+    graph = _FakeGraphWithCheckpointer([HumanMessage("看记忆"), ai])
+    agent = BuiltinAgent(graph)  # type: ignore[arg-type]
+    config = {"configurable": {"thread_id": "t_del"}}
+    await agent._repair_history(config)
+    # 不应该走追加路径
+    assert graph.updates == []
+    # 应该执行了 DELETE SQL（至少 checkpoints 表）
+    assert any("DELETE FROM checkpoints" in sql for sql, _ in graph.conn.executed)
+    assert graph.conn.committed >= 1
+
+
+@pytest.mark.asyncio
+async def test_repair_history_fallback_to_append_without_conn() -> None:
+    """无 conn（如 InMemorySaver）时，兜底追加占位 ToolMessage。"""
+    ai = AIMessage(
+        "",
+        tool_calls=[{"name": "read_role_memory", "args": {}, "id": "call_y"}],
+    )
+    graph = _FakeGraph([HumanMessage("看记忆"), ai])  # 无 checkpointer.conn
+    agent = BuiltinAgent(graph)  # type: ignore[arg-type]
+    await agent._repair_history({"configurable": {"thread_id": "t_fallback"}})
+    assert len(graph.updates) == 1
+    assert isinstance(graph.updates[0]["messages"][0], ToolMessage)

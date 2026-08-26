@@ -138,13 +138,21 @@ class BuiltinAgent(AgentInstance):
         return AgentResult(content=content, agent_name=self.name)
 
     async def _repair_history(self, config: dict[str, Any]) -> None:
-        """给检查点里悬空的 tool_calls 补上占位 ToolMessage。
+        """修复检查点里悬空的 tool_calls，避免 LLM 拒绝重放。
 
         上次会话在工具执行前中断时，检查点会留下"请求了工具但没有
-        结果"的 AIMessage；重启后直接 ainvoke 会抛
-        INVALID_CHAT_HISTORY（LLM 提供方强制校验）。这里读出历史，
-        为每个悬空调用补一条"上次会话中断，工具未执行"的占位结果，
-        让重放合法。任何失败都静默跳过（不阻断正常调用）。
+        结果"的 AIMessage；重启后直接 ainvoke 会被 LLM 提供方校验拒绝
+        （INVALID_CHAT_HISTORY / insufficient tool messages）。
+
+        策略（2026-08-25 改进）：
+        - **首选**：删掉包含悬空 tool_call 的最新 checkpoint，让 LangGraph
+          从上一个干净状态恢复。比追加 ToolMessage 更可靠——因为
+          ``aupdate_state`` 只能追加到末尾，ToolMessage 不在 AIMessage
+          紧后面，LLM 仍会拒绝。
+        - **兜底**：checkpointer 无 SQL 接口（如 InMemorySaver）时，
+          追加占位 ToolMessage（旧逻辑，位置可能不正确但尽力而为）。
+
+        任何失败都静默跳过（不阻断正常调用）。
         """
         try:
             state = await self._graph.aget_state(config)
@@ -154,6 +162,10 @@ class BuiltinAgent(AgentInstance):
             missing = dangling_tool_call_ids(list(msgs))
             if not missing:
                 return
+            # 首选：删掉最新 checkpoint（含悬空 tool_call），回退到上一个
+            if await self._delete_latest_checkpoint(config):
+                return
+            # 兜底：追加占位 ToolMessage（非 SQLite checkpointer 场景）
             patches = [
                 ToolMessage(
                     content="（上次会话中断，该工具未执行完成，请基于已有信息继续）",
@@ -164,6 +176,34 @@ class BuiltinAgent(AgentInstance):
             await self._aupdate_messages(config, patches)
         except Exception:  # noqa: BLE001 - 修复失败不阻断主流程
             return
+
+    async def _delete_latest_checkpoint(self, config: dict[str, Any]) -> bool:
+        """删掉最新 checkpoint（含悬空 tool_call），让 LangGraph 从上一个恢复。
+
+        成功返回 True；checkpointer 无 SQL 接口时返回 False（兜底走追加）。
+        """
+        try:
+            checkpointer = getattr(self._graph, "checkpointer", None)
+            conn = getattr(checkpointer, "conn", None)
+            if conn is None:
+                return False
+            thread_id = config["configurable"]["thread_id"]
+            await conn.execute(
+                "DELETE FROM checkpoints WHERE thread_id=? AND checkpoint_id IN "
+                "(SELECT checkpoint_id FROM checkpoints WHERE thread_id=? "
+                "ORDER BY checkpoint_id DESC LIMIT 1)",
+                (thread_id, thread_id),
+            )
+            await conn.execute(
+                "DELETE FROM writes WHERE thread_id=? AND checkpoint_id IN "
+                "(SELECT checkpoint_id FROM writes WHERE thread_id=? "
+                "ORDER BY checkpoint_id DESC LIMIT 1)",
+                (thread_id, thread_id),
+            )
+            await conn.commit()
+            return True
+        except Exception:  # noqa: BLE001 - 非 SQLite checkpointer 或无 conn
+            return False
 
     def _messages_node_name(self) -> str:
         """探测一个写入 messages 的节点名，供 aupdate_state 消歧。

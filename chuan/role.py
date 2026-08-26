@@ -148,6 +148,28 @@ class PersonaRole:
     - 进度：on_progress 回调 + self.progress 状态表
     """
 
+    # -------------------------------------------------------------- #
+    # 存档历史修复（悬空 tool_call 补占位 ToolMessage）
+    # -------------------------------------------------------------- #
+    @staticmethod
+    async def _ensure_agent_history_ok(agent: Any, thread_id: str) -> None:
+        """agent 执行前修 SqliteSaver 里的悬空 tool_calls。
+
+        上次会话在工具执行前中断时，checkpointer 会留下"请求了工具但没有
+        结果"的 AIMessage；下次重放被 LLM 提供方校验拒绝
+        （INVALID_CHAT_HISTORY / insufficient tool messages）。BuiltinAgent
+        自己有 ``_repair_history``；其他 agent 类型不处理。修复失败静默跳过，
+        绝不阻断正常调用。
+        """
+        repair = getattr(agent, "_repair_history", None)
+        if not callable(repair):
+            return
+        config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+        try:
+            await repair(config)
+        except Exception:  # noqa: BLE001
+            return
+
     # 显式指定 agent 的关键词映射（小写匹配）
     _EXPLICIT_AGENT_MAP: list[tuple[str, str]] = [
         ("用pi", "pi"),
@@ -391,6 +413,9 @@ class PersonaRole:
         agent = self._resolve_tier_instance(tier)
         # N41：实例实际执行一次 → 更新最近使用/次数（扩缩容依据）
         self._touch_agent(agent)
+        # 历史修复：上次在 thread=session_id 中断时留下的悬空 tool_calls
+        # 必须在 agent.run 之前修，否则 LLM 提供方以 INVALID_CHAT_HISTORY 拒
+        await self._ensure_agent_history_ok(agent, session_id)
         # N26/N30：开工前注入「参考做法」（技能触发命中优先，知识原子兜底）
         run_task = self._inject_reference(task)
         result = await agent.run(
@@ -739,11 +764,15 @@ class PersonaRole:
                             agent = switched
                     if decision.hint:
                         prompt = f"{decision.hint}\n\n{prompt}"
+            thread_id = f"{session_id}:plan:{st.id}:a{attempt}"
+            # attempt 每次独立 thread；仍可能残留上次 attempt 中断时的
+            # 悬空 tool_calls，这里修一下（不阻断）
+            await self._ensure_agent_history_ok(agent, thread_id)
             try:
                 result = await agent.run(
                     prompt,
                     context={**self.context,
-                             "thread_id": f"{session_id}:plan:{st.id}:a{attempt}",
+                             "thread_id": thread_id,
                              "__on_progress__": self._emit_progress},
                 )
             except Exception as exc:  # noqa: BLE001 - 单个子任务失败不阻断
