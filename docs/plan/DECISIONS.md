@@ -769,7 +769,7 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 
 **分阶段**:
 - **阶段 1（N57a）截图 + 元素定位**：`mss` 屏幕截图 → **pywinauto 元素定位（主，控件属性/UIA，类影刀捕获元素）**；pywinauto 定位不了的自绘界面降级用 `vision_analyze`（qwen-vl，N50/N52 已有）视觉兜底 → 返回元素描述 + 坐标。产出 `gui_screenshot` / `gui_locate` skill。
-- **阶段 2（N57b）鼠标键盘 + 元素操作**：**pywinauto 主力**（点击/输入/窗口控制/控件选择）+ `pyautogui` 兜底（坐标模拟/滚动/快捷键/拖拽）。产出 `gui_click` / `gui_type` / `gui_scroll` / `gui_hotkey` skill。
+- **阶段 2（N57b）鼠标键盘 + 元素操作**：**pywinauto 主力**（点击/输入/窗口控制/控件选择）+ `pyautogui` 兜底（坐标模拟/滚动/快捷键/拖拽）。**默认走「后台静默模式」（UIA 后台交互：不激活窗口、不抢真实鼠标键盘，用户正常用电脑无感；借鉴影刀后台模式）**，前台坐标仅兜底——这是 pywinauto 相对 pyautogui 的核心加分项。产出 `gui_click` / `gui_type` / `gui_scroll` / `gui_hotkey` skill。
 - **阶段 3（N57c）闭环 + 安全（关键）**：组合 `gui_operate`（截图 → 定位 → 操作 → 验证截图 闭环）。**安全闸**（借鉴影刀被劫持 = 电脑被劫持的教训，呼应 P4 机器绑定/自动锁屏）：
   - 危险序列拦截（Ctrl+Alt+Del / 格式化 / 删除类）走既有 guard 审核
   - 只允许本机操作、带超时上限、失败自动中止
