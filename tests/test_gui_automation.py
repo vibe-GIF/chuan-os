@@ -487,3 +487,100 @@ def test_operate_audits_and_verifies(monkeypatch: pytest.MonkeyPatch, tmp_path) 
     assert "留痕" in res
     content = log.read_text(encoding="utf-8")
     assert "click" in content and "before=" in content and "after=" in content
+
+
+# ── 阶段 4：边界 / 异常路径 ──────────────────────────
+
+def test_clamp_bounds() -> None:
+    assert ga._clamp(0, 1, 300) == 1
+    assert ga._clamp(9999, 1, 300) == 300
+    assert ga._clamp("abc", 1, 300) == 300
+
+
+def test_scroll_amount_clamp_lower_and_nonnum(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_pyautogui(monkeypatch)
+    ga.gui_scroll("down", 0, x=5, y=5)
+    assert calls["scroll"][0][0] == -1  # 0 → 钳制到 1
+    calls["scroll"].clear()
+    ga.gui_scroll("down", "abc", x=5, y=5)
+    assert calls["scroll"][0][0] == -3  # 非数字 → 默认 3
+
+
+def test_normalize_hotkey_variants() -> None:
+    assert ga._normalize_hotkey("  Ctrl + S ") == "ctrl+s"
+    assert ga._normalize_hotkey("Ctrl+Shift+Escape") == "ctrl+shift+escape"
+    assert ga._normalize_hotkey("alt + f4") == "alt+f4"
+    assert ga._normalize_hotkey("  ") == ""
+
+
+def test_to_pywinauto_keys_variants() -> None:
+    assert ga._to_pywinauto_keys("ctrl+s") == "^S"
+    assert ga._to_pywinauto_keys("ctrl+alt+delete") == "^%{DELETE}"
+    assert ga._to_pywinauto_keys("win+e") == "{LWIN}E"
+    assert ga._to_pywinauto_keys("f5") == "{F5}"
+
+
+def test_hotkey_blocks_normalized_variants() -> None:
+    assert "安全闸拦截" in ga.gui_hotkey("Win + L")
+    assert "安全闸拦截" in ga.gui_hotkey("CTRL+ALT+DELETE")
+
+
+def test_hotkey_window_not_found_lists(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([_Win("微信")]))
+    res = ga.gui_hotkey("ctrl+s", "不存在的窗口")
+    assert "未找到窗口" in res and "微信" in res
+
+
+def test_click_negative_index_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctl = _Control("发送", "Button")
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    res = ga.gui_click("发送", "微信", index=-1)
+    assert "未找到匹配" in res
+
+
+def test_operate_no_target_rejected() -> None:
+    res = ga.gui_operate("click", verify=False)
+    assert "请提供目标" in res
+
+
+def test_operate_foreground_allowed_when_idle_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_user_idle_seconds", lambda: None)
+    seen: dict = {}
+    monkeypatch.setattr(ga, "gui_click", lambda *a, **kw: seen.update(kw) or "已点击")
+    res = ga.gui_operate("click", description="发送", window="微信", mode="foreground", verify=False)
+    assert seen.get("mode") == "foreground"
+    assert "已点击" in res
+
+
+def test_operate_verify_false_no_screenshots_but_audits(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    ctl = _Control("发送", "Button", silent_ok=True)
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    log = tmp_path / "actions.log"
+    monkeypatch.setattr(ga, "_ACTION_LOG", log)
+    shots = {"n": 0}
+
+    def boom_shot(path: str = ""):
+        shots["n"] += 1
+        raise RuntimeError("不应被调用")
+
+    monkeypatch.setattr(ga, "gui_screenshot", boom_shot)
+    res = ga.gui_operate("click", description="发送", window="微信", mode="silent", verify=False)
+    assert "后台静默点击" in res
+    assert shots["n"] == 0  # verify=False 不截图
+    assert log.exists()  # 但动作日志常开（留痕与截图分离）
+    assert "click" in log.read_text(encoding="utf-8")
+
+
+def test_operate_audit_failure_does_not_block(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    ctl = _Control("发送", "Button", silent_ok=True)
+    win = _Win("微信", controls=[ctl])
+    monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
+    monkeypatch.setattr(ga, "gui_screenshot", lambda path="": "截图已保存: x.png（1 字节）。")
+    # 把日志路径指向「父路径是普通文件」→ mkdir 必然失败，验证 _audit 吞错不阻断
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file")
+    monkeypatch.setattr(ga, "_ACTION_LOG", blocker / "actions.log")
+    res = ga.gui_operate("click", description="发送", window="微信", mode="silent", verify=True)
+    assert "后台静默点击" in res
