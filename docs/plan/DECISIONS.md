@@ -839,3 +839,25 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **修复**（`chuan/agents/builtin.py`）: `aget_state` 返回的 StateSnapshot 已含精确 `config['configurable']['checkpoint_id']` / `checkpoint_ns`；`_repair_history` 从中取值传给 `_delete_latest_checkpoint(config, checkpoint_id, checkpoint_ns)`，SQL 改为精确 `WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=?`，去掉 ORDER BY 子查询。拿不到精确 id 时返回 False，走追加占位 ToolMessage 兜底（宁可不删，不删错）。
 
 **测试**（`tests/test_history_repair.py`）: 更新 `test_repair_history_deletes_dirty_checkpoint`（断言 DELETE 用精确 `(thread_id, checkpoint_ns, checkpoint_id)` 且无 ORDER BY）+ 新增 `test_repair_history_no_checkpoint_id_falls_back_to_append`（拿不到 id 走追加兜底），共 12 passed。全量回归 829 passed / 2 skipped 无回退。
+
+## ADR-057: P4 安全增强（N59，机器绑定加密 / 陌生人识别 / 自动锁屏，2026-08-27）
+
+**背景**: ROADMAP P4 待办「机器绑定加密 / 陌生人距离 / 自动锁屏」（借鉴 Aivy「灵魂数据加密到硬件指纹」）。此前 chuan-os 敏感数据（SQLite/JSON）明文落盘，换机/拷走即可读；语音入口有 N54 声纹库但无「陌生人是谁」的判定与应对。
+
+**决策**: 落地为 N59，新增 `chuan/security/` 包，三块能力：
+
+1. **机器绑定加密**（`binding.py`）：
+   - 机器指纹 = 网卡 MAC（`uuid.getnode`）+ 主机名 + 平台 + **系统盘卷序列号**（Windows `ctypes.GetVolumeInformationW`，格式化不变，是「换机/换盘即失效」的锚点；非 Windows 用 MAC+hostname 兜底），拼接后 SHA-256。
+   - 密钥派生：PBKDF2-HMAC-SHA256（hashlib 标准库，40 万次迭代）从指纹派生 32 字节——指纹相同密钥相同（本机可解），换机即失配。
+   - 加密：优先 `cryptography.Fernet`（AES-128-CBC + HMAC，langchain 生态普遍已装）；缺失回退标准库方案（HMAC 流密钥 XOR + SHA-256 MAC 校验，仅防「拷走不可读」）。输出带 `CHUANBIND1:` 版本头；解密失败返回 None，绝不抛错。
+   - 文件级 `encrypt_file/decrypt_file` 封装（原地重写，原子 tmp+replace）。
+
+2. **陌生人识别**（`guard.py::identify_speaker`）：复用 N54 声纹库（`spoof.extract_features` / `load_speaker` / `_compare_voiceprint`），遍历已注册声纹取最高相似度分；低于阈值判「陌生人」；音频不可靠（过短/静音/低能量，复用 spoof 一级反欺骗阈值）或无注册声纹 → unknown（不判陌生人，避免环境声误锁屏）。
+
+3. **自动锁屏**（`guard.py::lock_workstation` + `SecurityGuard`）：Windows `ctypes.windll.user32.LockWorkStation()`（Win+L 等价），非 Windows/失败静默降级 False。`SecurityGuard` 配置驱动（config `security.lock`，默认关）：**连续 streak 次（默认 3）陌生人判定才锁屏**（防单次误判），主人声纹清零计数，锁屏后复位；lock_cb 可注入（测试/定制），回调异常被吞不阻断语音主循环。
+
+**配置**（`config/config.yaml` `security:` 段，默认全关，兼容现有明文）：`binding.enabled` / `lock.enabled` / `lock.threshold`（默认 0.6）/ `lock.streak`（默认 3）。
+
+**接入**（`chuan/voice/main.py`）：`run_voice_mode` 构造 `SecurityGuard.from_config()`（默认关，异常不阻断语音），传入 `_run_alwayson_loop`；阶段 3 每句话识别后 `guard.check()`，stranger 打印提示、locked 打印「已自动锁屏」。
+
+**测试**: `tests/test_security_binding.py`（指纹确定性/跨机失配/往返/篡改静默/文件级，13）+ `tests/test_security_guard.py`（识别 owner/stranger/unknown、lock_workstation 双平台 mock、SecurityGuard 防抖/复位/回调吞错/垃圾输入，20）= 33 passed。锁屏测试一律注入假 lock_cb / mock os.name，绝不触发真实锁屏。
