@@ -83,3 +83,17 @@
 **修复**（`tests/conftest.py`）：autouse fixture 对**两个模块对象**的 `_DB` 同时补丁到同一个 tmp DB；conftest 顶部显式 `import handlers.gui_memory` + `import skills.handlers.gui_memory` 先拿到两个对象。
 
 **教训**：命名空间包 + sys.path 动态插入会制造「同文件双模块对象」的幻影隔离。凡是「生产代码懒导入 A，测试代码导入 B」的配对，必须验证 `sys.modules` 里是不是同一个对象；DB/全局状态类模块尤其要防——fixture 补丁对象 ≠ 被测代码实际用的对象，测试就形同虚设（且单测/全量行为不一致正是此坑的警报）。
+
+---
+
+## 8. pywinauto `type_keys` 默认 `with_spaces=False`：空格会被当分隔符吞掉（真机验证）
+
+**现象**（N57 真机全链路验证，Windows 11 记事本）：`gui_type("GUI 自动化真机验证 N57", ...)` 落到前台 `type_keys` 后，读回剪贴板是 `GUI自动化真机验证N57`——**所有空格都没了**，但汉字和数字都在。
+
+**根因**：pywinauto `type_keys(keys, ...)` 的 `with_spaces` 默认是 **False**——此时字符串里的空格被当作「键串分隔符」**静默跳过、不发送**（文档原话：spaces are used to parse keys string and not sent to target window）。对现代 Win11 记事本的 `RichEditD2DPT`（无 `set_edit_text`，只能走前台 type_keys）这是必然丢空格；对普通 Edit 因为有 `set_edit_text` 静默直写通道反而暴露不出来。
+
+**附带发现**：即使 `with_spaces=True`，默认 `pause=0.01` 对富文本控件仍可能过快丢字符；慢速（`pause=0.05`）更稳。
+
+**修复**（`gui_automation.py::gui_type` 前台分支）：显式 `ctl.type_keys(text, with_spaces=True, pause=0.05)`；测试 mock 签名同步加 `with_spaces/pause` 参数，并把原「hello」断言升级为「hello world 42」锁空格回归。
+
+**教训**：pywinauto 这类「键串 DSL」有反直觉默认值，**别相信空格原样送达**。涉及含空格/特殊字符的真实文本输入，必须显式声明 `with_spaces=True`（以及必要时的 pause），并用真机读回（剪贴板/控件值）验证实际送达内容，而不是只看返回消息。

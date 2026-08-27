@@ -94,7 +94,7 @@ class _Control:
     def set_focus(self) -> None:
         self._focused = True
 
-    def type_keys(self, text: str) -> None:
+    def type_keys(self, text: str, with_spaces: bool = False, pause: float | None = None) -> None:
         self.typed = text
 
 
@@ -349,9 +349,10 @@ def test_type_foreground_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     ctl = _Control("输入框", "Edit", silent_ok=False)
     win = _Win("微信", controls=[ctl])
     monkeypatch.setattr(ga, "_desktop", lambda: _Desktop([win]))
-    res = ga.gui_type("hello", "输入框", "微信")
+    res = ga.gui_type("hello world 42", "输入框", "微信")
     assert "前台输入" in res and "type_keys" in res
-    assert ctl.typed == "hello"
+    # type_keys 显式 with_spaces=True：空格不能被当分隔符吞掉（真机验证回归点）
+    assert ctl.typed == "hello world 42"
 
 
 def test_type_requires_text(monkeypatch: pytest.MonkeyPatch) -> None:

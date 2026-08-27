@@ -203,13 +203,23 @@ def _find_window(desktop, window: str):
 # ------------------------------------------------------------------ #
 # 元素定位（pywinauto UIA）+ 视觉兜底
 # ------------------------------------------------------------------ #
+def _rect_center(r) -> tuple[int, int]:
+    """控件矩形中心坐标 (cx, cy)。
+
+    兼容 pywinauto 0.6.x RECT：``left/top`` 是属性、``width/height`` 是**方法**
+    （``r.width()``）；测试 mock 里 width/height 可能是属性。两种都取得到才稳。
+    """
+    w = r.width() if callable(getattr(r, "width", None)) else r.width
+    h = r.height() if callable(getattr(r, "height", None)) else r.height
+    return int(r.left) + int(w) // 2, int(r.top) + int(h) // 2
+
+
 def _control_desc(ctl) -> str:
     """控件 → 一行描述：文本（class）@ 坐标。"""
     try:
         text = ctl.window_text() or ""
         cls = ctl.friendly_class_name() or ctl.class_name() or "?"
-        r = ctl.rectangle()
-        cx, cy = (r.left + r.width // 2, r.top + r.height // 2)
+        cx, cy = _rect_center(ctl.rectangle())
         label = text if text else cls
         return f"{label}（{cls}）@ ({cx},{cy})"
     except Exception:  # noqa: BLE001
@@ -411,8 +421,8 @@ def gui_click(
             return f"后台静默点击失败：控件不支持 UIA Invoke/click（{_control_desc(ctl)}）。可改用 mode=foreground 接管屏幕。"
     # 前台（foreground / auto 兜底）：真实鼠标点元素中心
     try:
-        r = ctl.rectangle()
-        return _click_xy(r.left + r.width // 2, r.top + r.height // 2)
+        cx, cy = _rect_center(ctl.rectangle())
+        return _click_xy(cx, cy)
     except Exception as exc:  # noqa: BLE001 - 静默降级
         return f"点击失败：{exc}"
 
@@ -460,7 +470,9 @@ def gui_type(
     # 前台（foreground / auto 兜底）：激活控件 + type_keys
     try:
         ctl.set_focus()
-        ctl.type_keys(text)
+        # type_keys 默认 with_spaces=False 会把空格当分隔符吞掉（真机验证：记事本空格全丢）；
+        # 且默认 pause=0.01 过快，富文本控件（RichEditD2DPT）会丢字符。显式保空格 + 放慢。
+        ctl.type_keys(text, with_spaces=True, pause=0.05)
         return f"已前台输入到「{_control_desc(ctl)}」（type_keys）。"
     except Exception as exc:  # noqa: BLE001 - 静默降级
         return f"输入失败：{exc}"
@@ -511,8 +523,7 @@ def gui_scroll(
         if ctl is None:
             return hint
         try:
-            r = ctl.rectangle()
-            x, y = r.left + r.width // 2, r.top + r.height // 2
+            x, y = _rect_center(ctl.rectangle())
         except Exception as exc:  # noqa: BLE001 - 静默降级
             return f"滚动失败：{exc}"
 
@@ -910,18 +921,18 @@ def _mem_save(win, window_keyword: str, description: str, ctl) -> None:
     try:
         from handlers.gui_memory import gui_mem_save
 
-        r = ctl.rectangle()
         app = (window_keyword or "").strip()
         if not app and win is not None:
             app = win.window_text() or ""
+        cx, cy = _rect_center(ctl.rectangle())
         gui_mem_save(
             app=app,
             description=description,
             window_class=win.class_name() if win is not None else "",
             control_type=ctl.friendly_class_name() or "",
             control_text=ctl.window_text() or "",
-            x=r.left + r.width // 2,
-            y=r.top + r.height // 2,
+            x=cx,
+            y=cy,
         )
     except Exception:  # noqa: BLE001 - 记忆写失败不阻断定位
         return
