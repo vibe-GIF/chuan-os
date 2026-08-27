@@ -68,6 +68,13 @@ class RuntimeSupervisor:
         on_proactive_alert: Any = None,
         on_progress: Any = None,
     ) -> None:
+        # Windows 高 DPI 坐标一致性：启动早期声明 DPI 感知（失败静默，GUI 侧 dpi_scale 兜底）
+        try:
+            from skills.handlers import gui_automation as _ga
+
+            _ga.enable_dpi_awareness()
+        except Exception:  # noqa: BLE001 - 声明失败 / 模块不可用均不阻断启动
+            pass
         self.brains = brain_registry or BrainRegistry()
         self.guard = guard or Guard()
         self.memory = memory or Memory()

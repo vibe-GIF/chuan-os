@@ -26,6 +26,16 @@ def _isolate_mem_db(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     yield
 
 
+@pytest.fixture(autouse=True)
+def _dpi_scaling_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """坐标类测试默认按「已声明 DPI 感知」（物理坐标直通）跑，DPI 换算用专门用例覆盖。
+
+    避免缩放屏上 _click_xy 对现有坐标断言做隐性换算；需要测换算的用例内部再显式 set False。
+    """
+    monkeypatch.setattr(ga, "_dpi_aware", True)
+    yield
+
+
 # ── 测试替身 ─────────────────────────────────────────
 
 class _Rect:
@@ -862,3 +872,118 @@ def test_relocate_and_resave_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ga, "_visual_locate", lambda d: None)
     res = ga._relocate_and_resave(None, "微信", "发送")
     assert "视觉重新定位也失败" in res and "人工重新调教" in res
+# ── Windows 高 DPI 坐标一致性（N57/N58 前置修复）────────
+
+
+def _patch_windll(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    context_ret: int = 1,
+    dpiaware_ret: int = 1,
+    getdpi_ret: int = 144,
+    gdi_dpi: int = 120,
+    context_raise: Exception | None = None,
+    getdpi_raise: Exception | None = None,
+) -> None:
+    """把 ctypes.windll 替换为可配置 fake（enable_dpi_awareness / dpi_scale 用）。"""
+    import ctypes
+
+    def _context(v):
+        if context_raise is not None:
+            raise context_raise
+        return context_ret
+
+    def _getdpi():
+        if getdpi_raise is not None:
+            raise getdpi_raise
+        return getdpi_ret
+
+    fake = SimpleNamespace(
+        user32=SimpleNamespace(
+            SetProcessDpiAwarenessContext=_context,
+            SetProcessDPIAware=lambda: dpiaware_ret,
+            GetDpiForSystem=_getdpi,
+            GetDC=lambda hwnd: 1,
+            ReleaseDC=lambda hwnd, hdc: 1,
+        ),
+        gdi32=SimpleNamespace(GetDeviceCaps=lambda hdc, idx: gdi_dpi),
+    )
+    monkeypatch.setattr(ctypes, "windll", fake)
+
+
+def test_enable_dpi_awareness_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Linux")
+    assert ga.enable_dpi_awareness() is False
+
+
+def test_enable_dpi_awareness_win_per_monitor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(ga, "_dpi_aware", False)
+    _patch_windll(monkeypatch, context_ret=1, dpiaware_ret=1)
+    assert ga.enable_dpi_awareness() is True
+    assert ga._dpi_aware is True
+
+
+def test_enable_dpi_awareness_win_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(ga, "_dpi_aware", False)
+    _patch_windll(monkeypatch, context_ret=0, dpiaware_ret=1)  # 上下文失败 → 旧 API 兜底
+    assert ga.enable_dpi_awareness() is True
+    assert ga._dpi_aware is True
+
+
+def test_enable_dpi_awareness_win_all_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(ga, "_dpi_aware", False)
+    _patch_windll(monkeypatch, context_ret=0, dpiaware_ret=0)
+    assert ga.enable_dpi_awareness() is False
+    assert ga._dpi_aware is False
+
+
+def test_enable_dpi_awareness_shcore_missing_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(ga, "_dpi_aware", False)
+    _patch_windll(monkeypatch, context_raise=AttributeError("no API"), dpiaware_ret=1)
+    assert ga.enable_dpi_awareness() is True
+
+
+def test_dpi_scale_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Linux")
+    assert ga.dpi_scale() == 1.0
+
+
+def test_dpi_scale_windows_getdpi(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    _patch_windll(monkeypatch, getdpi_ret=144)
+    assert ga.dpi_scale() == 1.5
+
+
+def test_dpi_scale_windows_gdi_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    _patch_windll(monkeypatch, getdpi_raise=AttributeError("no GetDpiForSystem"), gdi_dpi=120)
+    assert ga.dpi_scale() == 1.25
+
+
+def test_click_xy_dpi_scaling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_dpi_aware", False)
+    monkeypatch.setattr(ga, "dpi_scale", lambda: 1.5)
+    calls = _patch_pyautogui(monkeypatch)
+    res = ga._click_xy(150, 300)
+    assert calls["click"] == [(100, 200)]  # 150/1.5, 300/1.5
+    assert "(150,300)" in res  # 返回值仍展示物理坐标
+
+
+def test_click_xy_no_scaling_when_dpi_aware(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_dpi_aware", True)
+    monkeypatch.setattr(ga, "dpi_scale", lambda: 1.5)  # 即使缩放比≠1 也不换算
+    calls = _patch_pyautogui(monkeypatch)
+    ga._click_xy(150, 300)
+    assert calls["click"] == [(150, 300)]
+
+
+def test_click_xy_no_scaling_when_scale_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "_dpi_aware", False)
+    monkeypatch.setattr(ga, "dpi_scale", lambda: 1.0)
+    calls = _patch_pyautogui(monkeypatch)
+    ga._click_xy(150, 300)
+    assert calls["click"] == [(150, 300)]
