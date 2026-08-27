@@ -829,3 +829,13 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **理由**: GUI 自动化天生脆（界面改版即崩），且每次都要重新定位很「费调教」；记忆库让常用操作收敛为「一次定位、永久复用」。SQLite 单文件零依赖，对齐 sessions.db/memory_fts.db 惯例。
 
 **反例（不做）**: 把坐标当唯一依据无条件信任（界面一动就点错，需 hits + 时间戳留痕可查）；存整张控件树（过大、易碎）；训练模型学界面布局（过重，记忆库已覆盖 80% 价值）。
+
+## ADR-056: checkpoint 历史修复·删错 checkpoint 修复（2026-08-26）
+
+**背景**: LLM 提供方要求 ToolMessage 紧跟 AIMessage 的 tool_calls 之后（否则 `INVALID_CHAT_HISTORY` / `insufficient tool messages`）。上次会话在工具执行前中断时，checkpoint 会留下「有 tool_calls 无 ToolMessage」的悬空 AIMessage，重启重放被拒。chuan 已有两层防护：`BuiltinAgent.run()` 每次执行前内部调 `_repair_history`；`PersonaRole._ensure_agent_history_ok` 对带 `_repair_history` 的 agent 类型兜底。
+
+**排查发现（2026-08-26）**: `_repair_history` 首选「删最新 checkpoint 回退干净状态」，但 `_delete_latest_checkpoint` 用 `ORDER BY checkpoint_id DESC LIMIT 1` 定位「最新」checkpoint——checkpoint_id 是 UUID（随机），字符串排序 ≠ 时间顺序，会删到字典序更大的旧 checkpoint、漏删真正含悬空 tool_call 的最新 checkpoint，400 依旧；且未按 `checkpoint_ns` 过滤（checkpoints 表主键含 checkpoint_ns）。
+
+**修复**（`chuan/agents/builtin.py`）: `aget_state` 返回的 StateSnapshot 已含精确 `config['configurable']['checkpoint_id']` / `checkpoint_ns`；`_repair_history` 从中取值传给 `_delete_latest_checkpoint(config, checkpoint_id, checkpoint_ns)`，SQL 改为精确 `WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=?`，去掉 ORDER BY 子查询。拿不到精确 id 时返回 False，走追加占位 ToolMessage 兜底（宁可不删，不删错）。
+
+**测试**（`tests/test_history_repair.py`）: 更新 `test_repair_history_deletes_dirty_checkpoint`（断言 DELETE 用精确 `(thread_id, checkpoint_ns, checkpoint_id)` 且无 ORDER BY）+ 新增 `test_repair_history_no_checkpoint_id_falls_back_to_append`（拿不到 id 走追加兜底），共 12 passed。全量回归 829 passed / 2 skipped 无回退。
