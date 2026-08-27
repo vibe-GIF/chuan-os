@@ -208,3 +208,20 @@ chuan-os 的设计借鉴了多个成熟的开源项目和架构范式。本文�
 | reconcile / lint 健康检查 | obsidian-second-brain | `Wiki.reconcile`/`lint`（✅ N24） |
 | 蒸馏落 raw 不可变层（防幻觉扩散） | Karpathy | `consolidate_sessions(wiki=...)` → `sources/`（✅ N24） |
 | 置信度分级 | obsidian-second-brain / CC | `Memory.remember(confidence=1-5)`（✅ N24） |
+
+---
+
+## 14. Tianshu（天枢）
+
+**来源**: GitHub: tianshu-ai/tianshu（自托管 AI agent 平台，TypeScript / Node 22+，Apache-2.0；已 fork 到 `vibe-GIF/tianshu`）。本地源码快照：`data/_archify/tianshu-main`（tarball 解压，非 git 副本）。
+
+**核心借鉴**:
+
+| 设计 | Tianshu 实现 | chuan-os 对应 / 候选 |
+|---|---|---|
+| 会话压缩（Conversation Compaction） | 上下文窗口 **50% 阈值**（`COMPACT_THRESHOLD=0.5`）预判 → LLM 按 `SUMMARY_PROMPT` 模板总结旧历史（目标/决策/文件路径/遗留/当前状态 结构化摘要）→ 保留最近 `KEEP_TAIL_MIN` 轮原文 → 旧会话标 `compacted` 留存、fork 新会话挂 `parent_id` 继承 | **候选（优先）**：chuan-os 会话只增不减（SqliteSaver），无压缩机制；可移植到 `role.py` 调用前 `_maybe_compact()` |
+| Solution 配置版本化 | `solutions.ts`：把主代理提示词 + worker 角色 + 插件启用状态封装为可版本化 `SolutionSpec`（磁盘 `<home>/_tenant/solutions/<slug>/`），支持提取运行态（`specFromReality`）/ 保存 / 应用（`applySolution`）/ 对比 / 激活；保留 slug `current` 为运行态实时镜像，禁止删除 | **候选**：chuan-os persona 为静态 YAML，无「运行态快照 → 保存 → 恢复/对比」机制；可映射到 `personas/` + worker 角色做配置版本化 |
+| 插件化架构 | `manifest.json` 声明式插件清单：`provides` 能力 + `contributes`（tools / toolsets / skills / systemPromptFragments / API 路由 / UI 面板 / 配置 schema） | **候选**：与 chuan-os skill yaml + handler 体系重叠较大，落地收益中等 |
+| 沙箱 + 浏览器 sidecar | MicroSandbox 插件：虚拟化沙箱（Apple Virtualization/KVM）+ shell 工具（`exec`/`reset_sandbox`/`update_sandbox_config`）+ 浏览器 sidecar（Stealth Chromium + Playwright MCP + noVNC），资源限制（memoryMib/execTimeoutMs）可配置 | **暂缓**：chuan-os 现为 `bash_safe.py` 黑名单拦截；虚拟化沙箱依赖底层虚拟化技术，Windows 个人环境落地成本最高 |
+
+**技术栈差异**: Tianshu 是 TypeScript/Node（PI 运行时 + LangGraph 无关），chuan-os 是 Python（LangGraph）。借鉴的是设计而非代码，移植需按 chuan-os 现有 `role.py` / `persona_loader.py` / `memory.py` 结构重写。调研评估与优先级结论见 [DECISIONS.md ADR-060](../plan/DECISIONS.md)。

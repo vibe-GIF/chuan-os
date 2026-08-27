@@ -896,3 +896,30 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: 不做 handler 型（无需执行函数，纯提示词）；不把四个象限机械打印进每轮对话（会制造无效流程）。
 
 **落地记录（已完成，2026-08-27）**: `skills/collab_quadrant.yaml`（name/description/type: prompt/trigger.keywords/prompt）。测试 `tests/test_collab_quadrant.py` 5 例：注册为 prompt 型 / 触发词命中（含 `find_prompt_skill` 注入入口）/ 无关文本不误触（天气）/ prompt 内容含协作纪律要点 / `to_tool()` 返回 None。修一处关键词坑：「设计方案」不是「帮我设计一个方案」的子串（中间隔「一个」），补「一个方案」后命中。注入链路复用既有 `SkillRegistry.find_prompt_skill` → `role.py:_maybe_inject_skill`，零代码改动。
+
+## ADR-060: 引入 Tianshu 借鉴参考（会话压缩优先，2026-08-27）
+
+**背景**: 调研自托管 AI agent 平台 Tianshu（天枢，tianshu-ai/tianshu，Apache-2.0，TypeScript/Node），已 fork 到 `vibe-GIF/tianshu` 并下载源码快照到 `data/_archify/tianshu-main`。对照 chuan-os 现状，识别出 4 个值得借鉴的设计点（详见 REFERENCES.md §14）：会话压缩、Solution 配置版本化、插件化 manifest、沙箱+浏览器 sidecar。
+
+**决策**: 采用「记录设计 + 分级候选」策略，不立即写代码：
+- **P2 会话压缩（优先）**：chuan-os 会话经 SqliteSaver 只增不减，长对话逼近模型上下文窗口（且叠加历史悬空 tool_call 风险）。借鉴 `compact.ts` 设计：估算输入 token ≥ 上下文窗口 50% → LLM 按模板总结旧历史（目标/决策/文件/遗留/当前状态）→ 保留最近 N 轮原文 → 旧会话标 compacted 留存、fork 新会话继承。待立项 N60，移植入口拟为 `role.py` 调用前 `_maybe_compact()`。
+- **P2 Solution 配置版本化**：chuan-os persona 为静态 YAML，无「运行态快照 → 保存 → 恢复/对比」机制。借鉴 `solutions.ts` 的 `SolutionSpec`（主代理提示词 + worker 角色 + 插件状态），映射到 `personas/` + worker 角色做配置版本化，保留运行态实时镜像 slug。
+- **P3 插件化 manifest / 沙箱 sidecar**：manifest 插件化与 chuan-os skill yaml + handler 重叠较大；MicroSandbox 虚拟化沙箱依赖底层虚拟化技术（Apple Virtualization/KVM），Windows 个人环境落地成本最高 → **暂缓**。
+
+**理由**: 借鉴的是设计而非代码（Tianshu 为 TS/Node，chuan-os 为 Python/LangGraph），逐条按「成本/收益」排序，低成本高收益项（会话压缩）优先立项；高成本项（沙箱）明确暂缓，避免过度工程。
+
+**反例**: 不整体移植 Tianshu 代码；不做插件化/沙箱大改造（ADR-007 薄层原则）；不把全部借鉴点一次性立项。
+
+**落地记录（已完成，2026-08-27）**: REFERENCES.md §14 新增 Tianshu 借鉴条目（4 设计点 + 技术栈差异）；ROADMAP「后续候选」表新增 3 条活跃待办（会话压缩/配置版本化/沙箱暂缓）；本文档记录决策与优先级。纯文档改动，无代码变更。
+
+## ADR-061: 架构图预览走本地 HTTP 服务（规避 IDE 预览器注入脚本报错，2026-08-27）
+
+**背景**: 在 Trae IDE 预览面板打开 `docs/diagrams/chuan-os-architecture.html`（`file://` 协议）时，控制台报 `connection.on is not a function`。排查定位：IDE 预览面板通过 `executeJavaScript` 注入 `previewer-tools` runtime（CDN：`lf3-static.bytednsdoc.com`）与 `trae-browser-inspect` 脚本；`file://` 下页面 origin 为 `null`，runtime 内部 `connection` 桥接对象（`postMessage`/`MessageChannel` 与宿主通信）无法建立，`this.connection.on(...)` 在 runtime **内部闭包**中报错。报错不影响渲染，但污染控制台。已验证：改用本地 HTTP 服务访问（origin 有效）后 0 报错。
+
+**决策**: 固化 `scripts/preview_diagrams.py`（标准库 http.server，无第三方依赖）：`os.chdir` 到项目根 + `ThreadingHTTPServer` 绑定 127.0.0.1（默认端口 8322，占用自动 +1 探测）+ 自动 `webbrowser.open` 打开架构图；支持 `--port/--no-open/--target`。预览架构图一律走 `http://127.0.0.1:<port>/docs/diagrams/chuan-os-architecture.html`，不再用 IDE 预览面板 `file://` 直接打开。
+
+**理由**: 报错位于 IDE 注入脚本内部闭包，HTML 层无法根治——注入脚本在 `executeJavaScript` 层执行且会重新赋值/覆盖 `window.PreviewerTools`，HTML 内预置 fallback 的 `connection` 兜底被覆盖，无法拦截其闭包内报错；修改 IDE 安装目录脚本（`Trae CN/resources/app/...`）会被升级覆盖且属篡改软件本体。HTTP 服务是已验证且可复现的唯一路径。
+
+**反例**: 不改 IDE 安装目录脚本；不在 HTML 里加 `window.PreviewerTools` fallback（经分析无效，注入脚本覆盖时序与闭包隔离）；不为单个 HTML 常驻后台服务（脚本按需启动即可）。
+
+**落地记录（已完成，2026-08-27）**: 新增 `scripts/preview_diagrams.py`（含 docstring 说明根因与用法）；实测 `http://127.0.0.1:8322/docs/diagrams/chuan-os-architecture.html` 返回 200。纯工具脚本 + 本文档，无运行时/核心代码改动。
