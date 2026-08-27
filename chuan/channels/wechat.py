@@ -7,6 +7,10 @@
 
 薄层原则（ADR-007）：只做「收 → 路由 → 发」的胶水，复用 `RuntimeSupervisor.dispatch`，
 不自研消息队列、回调加解密等重型能力。
+
+部署约束（ADR-053 W2 决议）：企业微信原生回调是加密 XML（`Encrypt` + AES），本通道
+`parse_callback` 只解析**已经中转/网关解包后的明文 JSON**；AES 加解密/原生 XML 解析由
+部署时的中转层承担，chuan 侧不实现。
 """
 
 from __future__ import annotations

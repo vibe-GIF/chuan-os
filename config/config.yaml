@@ -217,6 +217,8 @@ wechat:
   corp_id: ""           # 企业 ID（企业微信后台「我的企业」）
   corp_secret: ""       # 自建应用 Secret
   agent_id: ""          # 自建应用 AgentId
+  # 回调解包：企业微信原生回调是加密 XML，需经中转/网关解包为明文 JSON 后转发给 chuan
+  # （chuan 侧不实现 AES 加解密，见 ADR-053 W2 决议）
 
 # === HUD 悬浮层（N16 / Jarvis 全息人体模型）===
 # 真实对话经 TCP 推送给 Flutter 透明悬浮层（hud_overlay/assistant_overlay.exe）。
