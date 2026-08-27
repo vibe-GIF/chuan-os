@@ -521,6 +521,12 @@ blackboard/
 
 **汇总输出**（确定性分节，不调 LLM）：`团队协作完成：…` 后按岗分节 `### [研究]` / `### [编程]`，各岗产出完整、无互相串扰。演示产物（脚本/生成代码/文档/团队会话目录/演示记忆笔记）已清理，FTS 重索引无残留。
 
+**并发/状态机排雷（2026-08-26，N42 补强）**: 复审确认两个真实健壮性缺口并修复：
+- **c 超时未取消**：`_await_result` 原 `fut.result(timeout=600)` 超时后 `except Exception` 一把抓，底层 `asyncio` 任务未被取消，继续在事件循环里泄漏（占资源、结果被丢弃、无人等待）。修复：精确区分 `concurrent.futures.TimeoutError`，超时分支调 `fut.cancel()`（向底层 task 注入 `CancelledError`）后返回「执行超时（>600s），已取消」；普通异常仍走「执行失败」。`write_result` 在 `_await_result` 之后串行调、dispatch 本身不写黑板，故取消不会留下半截产出。超时阈值 600s 保持不变。
+- **d1 可重入 session 冲突**：同一 team 会话快速/并发重复触发会拼出相同 `session_id` → checkpointer 复用脏 tool_call 残留 + 黑板覆盖。修复：`TeamOrchestrator` 增 `_running: set` 防重入白名单，`orchestrate` 入口 `_safe(session_id)` 命中即拒绝（「正在协作中」），主体包 try/finally 在末尾 `discard` 清理。
+- 测试：`tests/test_team_orchestrator.py` +4（超时取消 / 普通异常不取消 / 防重入拒绝不派发 / 正常执行后清理），共 20 passed。
+- 未做：d2（跑完后顺序重复触发时的 checkpointer 唯一化）暂缓——d1 已挡并发/快速重复的实质路径，d2 会改变 team state 落盘文件名约定，留待确需时。
+
 ## ADR-038: 记忆语义检索·sqlite-vec（N43，FTS5 词法 + 向量语义双路合并）
 
 **决策**: 给长期记忆补**语义检索**，但**完全不动 FTS5**——在既有 SQLite 上加一层 `sqlite-vec` 向量索引作旁路，召回时「词法命中 + 语义命中」双路合并：

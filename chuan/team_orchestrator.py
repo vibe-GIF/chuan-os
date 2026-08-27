@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import re
 from dataclasses import dataclass, field
@@ -171,6 +172,7 @@ class TeamOrchestrator:
         self._sup = sup
         self._root = root
         self._loop = getattr(sup, "_loop", None)
+        self._running: set[str] = set()  # d1：正在协作的 session 防重入白名单
 
     # ------------------------------------------------------------------ #
     # 公开接口
@@ -197,27 +199,35 @@ class TeamOrchestrator:
         if self._loop is None or getattr(self._sup, "_is_awake", False) is False:
             return "[团队协作] 幕僚长未就绪，无法并行派发。"
 
-        blackboard = TeamBlackboard(
-            plan.task, plan.assignments,
-            session_id=session_id, root=self._root,
-        )
-        blackboard.write_context()
+        # d1 防重入：同 session 协作中时拒绝第二次触发（避免 checkpointer 脏数据 + 黑板覆盖）
+        key = _safe(session_id)
+        if key in self._running:
+            return f"[团队协作] 会话「{session_id}」正在协作中，请等待完成后再触发。"
+        self._running.add(key)
+        try:
+            blackboard = TeamBlackboard(
+                plan.task, plan.assignments,
+                session_id=session_id, root=self._root,
+            )
+            blackboard.write_context()
 
-        # 各岗位独立会话 + 共享黑板上下文注入；全部先调度（并行），再逐个取结果
-        results: list[tuple[TeamAssignment, str, bool]] = []
-        pending: list[tuple[TeamAssignment, Any]] = []
-        for a in plan.assignments:
-            role = self._sup._workers.get(a.role)
-            if role is None:
-                results.append((a, f"[岗位 {a.role} 不可用]", False))
-                continue
-            prompt = self._subtask_prompt(plan, a, blackboard)
-            pending.append((a, self._run_dispatch(a, role, prompt, session_id)))
-        for a, fut in pending:
-            content, success = self._await_result(a, fut)
-            blackboard.write_result(a.role, content, success)
-            results.append((a, content, success))
-        return self._summarize(plan, results)
+            # 各岗位独立会话 + 共享黑板上下文注入；全部先调度（并行），再逐个取结果
+            results: list[tuple[TeamAssignment, str, bool]] = []
+            pending: list[tuple[TeamAssignment, Any]] = []
+            for a in plan.assignments:
+                role = self._sup._workers.get(a.role)
+                if role is None:
+                    results.append((a, f"[岗位 {a.role} 不可用]", False))
+                    continue
+                prompt = self._subtask_prompt(plan, a, blackboard)
+                pending.append((a, self._run_dispatch(a, role, prompt, session_id)))
+            for a, fut in pending:
+                content, success = self._await_result(a, fut)
+                blackboard.write_result(a.role, content, success)
+                results.append((a, content, success))
+            return self._summarize(plan, results)
+        finally:
+            self._running.discard(key)
 
     # ------------------------------------------------------------------ #
     # LLM 选岗拆分（/team <任务> 用）：严格校验，失败回 None
@@ -314,9 +324,16 @@ class TeamOrchestrator:
         )
 
     def _await_result(self, a: TeamAssignment, fut: Any) -> tuple[str, bool]:
-        """同步等待单岗位 dispatch 结果；异常/失败标记为失败产出。"""
+        """同步等待单岗位 dispatch 结果；超时取消、异常/失败标记为失败产出。"""
         try:
             reply = fut.result(timeout=600)
+        except concurrent.futures.TimeoutError:
+            # 超时未完成：取消底层任务，避免协程在事件循环里继续泄漏（c）
+            try:
+                fut.cancel()
+            except Exception:  # noqa: BLE001 - 取消失败不阻断汇总
+                pass
+            return f"[岗位 {a.role} 执行超时（>600s），已取消]", False
         except Exception as exc:  # noqa: BLE001 - 单岗位失败不阻断整个协作
             return f"[岗位 {a.role} 执行失败: {exc}]", False
         content = str(reply)
