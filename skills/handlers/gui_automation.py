@@ -46,6 +46,68 @@ _DEFAULT_OUT_DIR = _ROOT / "data" / "gui"
 _VERIFY_DELAY = 0.3        # 点击与复核之间的延迟（秒），等弹窗/加载出现
 _DHASH_THRESHOLD = 5      # 截图 dHash 差异阈值（64bit 汉明距离，宽松，避免误删好记忆）
 
+# Windows 高 DPI 坐标一致性（N57/N58 前置修复）——
+# chuan 主进程默认 DPI-unaware：mss/pywinauto 给物理像素、pyautogui 走逻辑像素，
+# 缩放屏（125%/150%）上视觉得到的物理坐标交给 pyautogui 点击会整体偏移一个缩放系数。
+# 启动早期声明 DPI 感知统一为物理像素；声明失败时 _click_xy 用 dpi_scale 兜底换算。
+_dpi_aware = False  # enable_dpi_awareness 成功时置 True
+
+
+def enable_dpi_awareness() -> bool:
+    """声明进程 DPI 感知（Win10 Per-Monitor V2 → 旧 API 兜底）。成功返回 True。
+
+    只能成功一次，须在进程首次访问 DPI 前调用（放 RuntimeSupervisor 启动早期）。
+    失败静默返回 False，调用方以 dpi_scale() 读缩放比在点击时换算兜底，绝不阻断 GUI。
+    """
+    global _dpi_aware
+    if platform.system() != "Windows":
+        return False
+    try:
+        import ctypes
+
+        # Per-Monitor V2（DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4），多屏缩放最准
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(-4):
+            _dpi_aware = True
+            return True
+    except Exception:  # noqa: BLE001 - 老系统无此 API 则降级
+        pass
+    try:
+        import ctypes
+
+        # 旧 API 兜底：system DPI aware（单屏缩放够用）
+        if ctypes.windll.user32.SetProcessDPIAware():
+            _dpi_aware = True
+            return True
+    except Exception:  # noqa: BLE001 - 声明失败静默降级
+        pass
+    return False
+
+
+def dpi_scale() -> float:
+    """读主屏 DPI 缩放比（96=100% → 1.0）；非 Windows / 读不到返回 1.0。
+
+    注意：GetDpiForSystem 与 GetDpiForMonitor(MDT_EFFECTIVE) 在 DPI-unaware 进程里
+    都会被虚拟化成 96，读不到真实缩放比；故用注册表 AppliedDPI（不受 awareness 影响）
+    作主源，GetDpiForSystem 作兜底（进程已声明感知时才返回真实值）。
+    """
+    if platform.system() != "Windows":
+        return 1.0
+    try:
+        import winreg
+
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop\WindowMetrics")
+        val, _ = winreg.QueryValueEx(key, "AppliedDPI")
+        if isinstance(val, int) and val > 0:
+            return val / 96.0
+    except Exception:  # noqa: BLE001 - 读注册表失败则走 API 兜底
+        pass
+    try:
+        import ctypes
+
+        return ctypes.windll.user32.GetDpiForSystem() / 96.0
+    except Exception:  # noqa: BLE001 - 读不到按 100% 处理
+        return 1.0
+
 
 def _non_windows_msg() -> str:
     return "GUI 自动化目前支持 Windows（pywinauto 依赖 Windows UIA）；当前平台无法使用。"
@@ -289,7 +351,14 @@ def _click_xy(x: int, y: int) -> str:
     except Exception:  # noqa: BLE001 - 缺依赖降级
         return "点击失败：未安装 pyautogui（pip install pyautogui）。"
     try:
-        pyautogui.click(int(x), int(y))
+        cx, cy = int(x), int(y)
+        # DPI 兜底：若进程仍未声明 DPI 感知（缩放 >100%），pyautogui 走逻辑坐标，
+        # 需把物理坐标除以缩放比换算成逻辑坐标，否则会整体偏移一个缩放系数。
+        if not _dpi_aware:
+            scale = dpi_scale()
+            if scale != 1.0:
+                cx, cy = int(round(cx / scale)), int(round(cy / scale))
+        pyautogui.click(cx, cy)
         return f"已按坐标点击 ({int(x)},{int(y)})（前台真实鼠标）。"
     except Exception as exc:  # noqa: BLE001 - 静默降级
         return f"点击失败：{exc}"
