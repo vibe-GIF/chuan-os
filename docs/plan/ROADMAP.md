@@ -335,7 +335,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P2 | ✅ 局域网 HTTPS + 手机 PWA 接入 → **N48/ADR-043** | BaiLongma |
 | P2 | ✅ 记忆加「类型 + 硬容量」约束（学 CC 4 类 + Hermes 2200 字符封顶） → **N31/ADR-026** | 调研（CC/Hermes） |
 | P2 | ✅ 技能即记忆：重复流程自动沉淀 SKILL.md → **N30/ADR-025**（prompt 型技能） | 调研（Codex/Hermes） |
-| P2 | ✅ 自动技能创建落地：干完活自动创建新技能（`skill_creator.py`） → **N30/ADR-025** | 自研（REFERENCES L36） |
+| P2 | ✅ 自动技能创建落地：干完活自动创建新技能（`skill_creator.py`） → **N30/ADR-025**；固化四象限协作框架为 prompt 技能（`skills/collab_quadrant.yaml`，做方案/需求分析/复杂任务自动注入协作纪律） → **ADR-059** | 自研（REFERENCES L36） |
 | P2 | ✅ 岗位化 1:N 过渡：多 agent 池+会话隔离 → **N37/ADR-032**；1:N 默认启用并行独立 worker → **N38/ADR-033**；按实例配置工具/模型/记忆 → **N39/ADR-034**；config.yaml 按复杂度选实例 → **N40/ADR-035**；动态实例池自动扩缩容 → **N41/ADR-036**；岗位间协作·多岗位并行编排+共享黑板 → **N42/ADR-037**；记忆语义检索·sqlite-vec 双路合并 → **N43/ADR-038**；Redis TTL 缓存旁路·cache-aside 加速 → **N44/ADR-039**；任务队列+事件总线·Streams 可靠队列+Pub/Sub 总线 → **N45/ADR-040** | ADR-014 |
 | P2 | ✅ vault MCP server：外来 agent 经 MCP 检索/写入共享黑板 → **N49/ADR-044**（search_vault/write_vault/list_vaults 读写 data/teams/ 黑板） | obsidian-second-brain |
 | P2 | ✅ search_vault 检索工具：临时查外置 Obsidian 库，不混入记忆管道 → **N36/ADR-031** | 定位讨论 |

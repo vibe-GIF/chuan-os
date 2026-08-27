@@ -877,3 +877,22 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: 不做真实 seedance/seedream 端点的协议适配（无端点可对）；不做轮询式异步任务（假定后端同步返回二进制）；不做密钥入库 Git（secrets.yaml 已 .gitignore）。
 
 **落地记录（已完成，2026-08-27，N56 V2）**: `skills/handlers/media_gen.py`（`_load_media_cfg`/`_load_media_key`/`_gen_http`/`_PROVIDER`/`_KIND_LABEL`/`_CT_EXT`），video/image 分支改调 `_gen_http`；`config/config.yaml` 增 `media:` 段。测试：`tests/test_media_gen.py` +8 例（mock 服务器全链路：image→png 落盘 + 请求协议断言 / video→mp4 / jpeg→jpg 后缀 / 未知 ctype→kind 缺省后缀 / 500 降级 / 空响应降级 / 缺密钥未接入 / endpoint 空未接入），共 18 passed；生产路径（handlers.media_gen）实测未配置时返回可读提示。全量回归 870 passed 无回退。
+
+## ADR-059: 四象限协作框架固化为 prompt 型技能（N30，2026-08-27）
+
+**背景**: 复杂任务（做方案 / 需求分析 / 项目设计 / RPA 等）协作时，agent 容易陷入两类毛病：一是不确认目标就闷头干、反复无意义提问；二是一味顺从用户、不点破需求漏洞。项目已有 N30「技能即记忆」——prompt 型技能（触发关键词命中即在开工前注入复用做法，`PersonaRole._maybe_inject_skill` 前置到任务文本），本框架值得固化为这样一个可复用技能。
+
+**决策**: 新增 `skills/collab_quadrant.yaml`（prompt 型，无 handler/mcp_server → `Skill.kind == "prompt"`，`to_tool()` 返回 None 不进工具列表，仅走 `find_prompt_skill` 注入）：
+- **触发关键词**：四象限 / 协作框架 / 协作模式 / 按四象限 / 做方案 / 设计方案 / 方案设计 / 一个方案 / 需求分析 / 项目设计 / 复杂任务（子串匹配、大小写不敏感）。
+- **注入 prompt**（协作纪律）：
+  1. 共同已知：确认目标/背景/交付标准/边界，信息足够直接执行，不无意义反复提问；
+  2. 我的已知你的未知：缺信息影响结果时最多提 3 个关键问题，不影响就写明假设先输出探索版本；
+  3. 我的未知你的已知：主动点破风险/替代方案/前提错误，给出取舍依据；
+  4. 共同未知：转可验证假设，必要时设计最小可行实验（变量 + 成败标准）。
+- **执行规则**：四象限是内部思考逻辑不机械打印；严格区分事实/推断/假设/待验证；不一味顺从，帮用户挑错。
+
+**理由**: 把协作纪律从「口头约定」升级为「可触发技能」——命中即注入，不占用工具位、不误触简单任务（天气等无关文本不命中），与 N30 自动技能创建同一条沉淀链路。
+
+**反例**: 不做 handler 型（无需执行函数，纯提示词）；不把四个象限机械打印进每轮对话（会制造无效流程）。
+
+**落地记录（已完成，2026-08-27）**: `skills/collab_quadrant.yaml`（name/description/type: prompt/trigger.keywords/prompt）。测试 `tests/test_collab_quadrant.py` 5 例：注册为 prompt 型 / 触发词命中（含 `find_prompt_skill` 注入入口）/ 无关文本不误触（天气）/ prompt 内容含协作纪律要点 / `to_tool()` 返回 None。修一处关键词坑：「设计方案」不是「帮我设计一个方案」的子串（中间隔「一个」），补「一个方案」后命中。注入链路复用既有 `SkillRegistry.find_prompt_skill` → `role.py:_maybe_inject_skill`，零代码改动。
