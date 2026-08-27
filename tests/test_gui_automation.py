@@ -881,7 +881,6 @@ def _patch_windll(
     context_ret: int = 1,
     dpiaware_ret: int = 1,
     getdpi_ret: int = 144,
-    gdi_dpi: int = 120,
     context_raise: Exception | None = None,
     getdpi_raise: Exception | None = None,
 ) -> None:
@@ -903,12 +902,27 @@ def _patch_windll(
             SetProcessDpiAwarenessContext=_context,
             SetProcessDPIAware=lambda: dpiaware_ret,
             GetDpiForSystem=_getdpi,
-            GetDC=lambda hwnd: 1,
-            ReleaseDC=lambda hwnd, hdc: 1,
         ),
-        gdi32=SimpleNamespace(GetDeviceCaps=lambda hdc, idx: gdi_dpi),
     )
     monkeypatch.setattr(ctypes, "windll", fake)
+
+
+def _patch_registry(
+    monkeypatch: pytest.MonkeyPatch, applied_dpi: int = 120, fail: bool = False
+) -> None:
+    """把 winreg 替换为 fake：QueryValueEx 返回 AppliedDPI；fail=True 时 OpenKey 抛异常。"""
+
+    def _open(*a):
+        if fail:
+            raise OSError("no registry")
+        return ("key",)
+
+    fake = SimpleNamespace(
+        HKEY_CURRENT_USER=object(),
+        OpenKey=_open,
+        QueryValueEx=lambda key, name: (applied_dpi, None),
+    )
+    monkeypatch.setitem(sys.modules, "winreg", fake)
 
 
 def test_enable_dpi_awareness_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -952,16 +966,25 @@ def test_dpi_scale_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ga.dpi_scale() == 1.0
 
 
-def test_dpi_scale_windows_getdpi(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dpi_scale_registry_applied_dpi(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    _patch_registry(monkeypatch, applied_dpi=120)
+    _patch_windll(monkeypatch, getdpi_ret=96)  # GetDpiForSystem 被虚拟化成 96，主源仍是注册表
+    assert ga.dpi_scale() == 1.25
+
+
+def test_dpi_scale_registry_fail_fallback_getdpi(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
+    _patch_registry(monkeypatch, fail=True)  # 注册表读失败
     _patch_windll(monkeypatch, getdpi_ret=144)
     assert ga.dpi_scale() == 1.5
 
 
-def test_dpi_scale_windows_gdi_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dpi_scale_all_fail_returns_one(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ga.platform, "system", lambda: "Windows")
-    _patch_windll(monkeypatch, getdpi_raise=AttributeError("no GetDpiForSystem"), gdi_dpi=120)
-    assert ga.dpi_scale() == 1.25
+    _patch_registry(monkeypatch, fail=True)
+    _patch_windll(monkeypatch, getdpi_raise=AttributeError("no GetDpiForSystem"))
+    assert ga.dpi_scale() == 1.0
 
 
 def test_click_xy_dpi_scaling(monkeypatch: pytest.MonkeyPatch) -> None:

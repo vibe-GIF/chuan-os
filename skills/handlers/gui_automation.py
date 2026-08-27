@@ -84,23 +84,27 @@ def enable_dpi_awareness() -> bool:
 
 
 def dpi_scale() -> float:
-    """读当前系统 DPI 缩放比（96=100% → 1.0）；非 Windows / 读不到返回 1.0。"""
+    """读主屏 DPI 缩放比（96=100% → 1.0）；非 Windows / 读不到返回 1.0。
+
+    注意：GetDpiForSystem 与 GetDpiForMonitor(MDT_EFFECTIVE) 在 DPI-unaware 进程里
+    都会被虚拟化成 96，读不到真实缩放比；故用注册表 AppliedDPI（不受 awareness 影响）
+    作主源，GetDpiForSystem 作兜底（进程已声明感知时才返回真实值）。
+    """
     if platform.system() != "Windows":
         return 1.0
     try:
-        import ctypes
+        import winreg
 
-        return ctypes.windll.user32.GetDpiForSystem() / 96.0
-    except Exception:  # noqa: BLE001 - 老系统无 GetDpiForSystem 则走 GDI
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop\WindowMetrics")
+        val, _ = winreg.QueryValueEx(key, "AppliedDPI")
+        if isinstance(val, int) and val > 0:
+            return val / 96.0
+    except Exception:  # noqa: BLE001 - 读注册表失败则走 API 兜底
         pass
     try:
         import ctypes
 
-        hdc = ctypes.windll.user32.GetDC(None)
-        try:
-            return ctypes.windll.gdi32.GetDeviceCaps(hdc, 88) / 96.0  # LOGPIXELSX=88
-        finally:
-            ctypes.windll.user32.ReleaseDC(None, hdc)
+        return ctypes.windll.user32.GetDpiForSystem() / 96.0
     except Exception:  # noqa: BLE001 - 读不到按 100% 处理
         return 1.0
 
