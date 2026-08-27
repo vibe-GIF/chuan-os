@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import threading
 from types import SimpleNamespace
 
@@ -275,3 +276,72 @@ def test_plan_team_llm_no_model_returns_none(tmp_path) -> None:
     workers = {n: FakeTeamRole(n, d) for n, d in _ROSTER.items()}
     orch = _orch(workers, tmp_path)
     assert orch.plan_team_llm("任务", None) is None
+
+
+# ── 并发/状态机排雷（c 超时取消 + d1 防重入）────────
+
+
+class _TimeoutFuture:
+    """模拟 result(timeout) 超时、cancel 被调用的 future。"""
+
+    def __init__(self) -> None:
+        self.cancelled = False
+
+    def result(self, timeout):
+        raise concurrent.futures.TimeoutError("timed out")
+
+    def cancel(self) -> bool:
+        self.cancelled = True
+        return True
+
+
+class _ErrorFuture:
+    """模拟 result(timeout) 抛普通异常的 future。"""
+
+    def __init__(self) -> None:
+        self.cancelled = False
+
+    def result(self, timeout):
+        raise RuntimeError("boom")
+
+    def cancel(self) -> bool:
+        self.cancelled = True
+        return True
+
+
+def _assignment() -> TeamAssignment:
+    return TeamAssignment(role="researcher", mandate="研究", display="研究")
+
+
+def test_await_result_timeout_cancels_future(tmp_path) -> None:
+    orch = TeamOrchestrator(None, root=tmp_path)
+    fut = _TimeoutFuture()
+    content, success = orch._await_result(_assignment(), fut)
+    assert success is False
+    assert "执行超时" in content and "已取消" in content
+    assert fut.cancelled is True
+
+
+def test_await_result_error_does_not_cancel(tmp_path) -> None:
+    orch = TeamOrchestrator(None, root=tmp_path)
+    fut = _ErrorFuture()
+    content, success = orch._await_result(_assignment(), fut)
+    assert success is False
+    assert "执行失败" in content and "执行超时" not in content
+    assert fut.cancelled is False
+
+
+def test_orchestrate_reentrant_same_session_rejected(tmp_path) -> None:
+    researcher = FakeTeamRole("researcher", "研究", reply="产出")
+    orch = _orch({"researcher": researcher}, tmp_path)
+    orch._running.add("sessA")  # 预置「正在执行」
+    summary = orch.orchestrate(_plan("researcher"), session_id="sessA")
+    assert "正在协作中" in summary
+    assert len(researcher.calls) == 0  # 未重复派发
+
+
+def test_orchestrate_clears_running_after_run(tmp_path) -> None:
+    researcher = FakeTeamRole("researcher", "研究", reply="产出")
+    orch = _orch({"researcher": researcher}, tmp_path)
+    orch.orchestrate(_plan("researcher"), session_id="sessA")
+    assert "sessA" not in orch._running
