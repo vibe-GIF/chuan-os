@@ -36,20 +36,34 @@ CREATE TABLE IF NOT EXISTS gui_elements (
     x INTEGER DEFAULT 0,
     y INTEGER DEFAULT 0,
     hits INTEGER DEFAULT 1,
+    fail_streak INTEGER DEFAULT 0,
     last_used_at TEXT,
+    last_verified_at TEXT,
     created_at TEXT,
     UNIQUE(app, description)
 );
 """
 
-_FIELDS = ("app", "description", "control_type", "control_text", "x", "y", "hits", "last_used_at")
+# 坐标失效判定阈值：连续 verify 失败达到该次数即遗忘该记忆（N58 自愈闭环）
+_FAIL_THRESHOLD = 3
+
+_FIELDS = (
+    "app", "description", "control_type", "control_text",
+    "x", "y", "hits", "fail_streak", "last_used_at", "last_verified_at",
+)
 
 
 def _connect() -> sqlite3.Connection:
-    """打开元素记忆库（自动建目录 + 建表）。"""
+    """打开元素记忆库（自动建目录 + 建表 + 旧库补列）。"""
     _DB.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(_DB), timeout=5)
     conn.execute(_SCHEMA)
+    # 迁移：旧库补 fail_streak / last_verified_at 两列（幂等，新库无影响）
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(gui_elements)")}
+    if "fail_streak" not in cols:
+        conn.execute("ALTER TABLE gui_elements ADD COLUMN fail_streak INTEGER DEFAULT 0")
+    if "last_verified_at" not in cols:
+        conn.execute("ALTER TABLE gui_elements ADD COLUMN last_verified_at TEXT")
     conn.commit()
     return conn
 
@@ -151,3 +165,54 @@ def gui_mem_list(app: str = "", top: int = 20) -> str:
         for r in rows
     ]
     return "\n".join(lines)
+
+
+def gui_mem_verify(app: str, description: str, ok: bool = True) -> str:
+    """复核一次「记忆命中后的点击」是否生效，更新记忆置信度（N58 自愈闭环）。
+
+    - ok=True：点击生效，重置 fail_streak=0 并更新 last_verified_at —— 记忆更可信
+    - ok=False：累计 fail_streak+1；连续失败达到阈值（3）则删除该条记忆（坐标已失效）
+
+    按 app + description 精确匹配（与 gui_mem_save 的 UNIQUE 键一致）。
+
+    Returns:
+        "reset"（生效，重置） / "kept"（失败但未达阈值，保留） /
+        "forgotten"（连续失败达阈值，已删除） / "missing"（无此记忆，无操作）
+    """
+    app = (app or "").strip()
+    description = (description or "").strip()
+    if not (app and description):
+        return "missing"
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        conn = _connect()
+        row = conn.execute(
+            "SELECT fail_streak FROM gui_elements WHERE app=? AND description=?",
+            (app, description),
+        ).fetchone()
+        if row is None:
+            conn.close()
+            return "missing"
+        if ok:
+            conn.execute(
+                "UPDATE gui_elements SET fail_streak=0, last_verified_at=? WHERE app=? AND description=?",
+                (now, app, description),
+            )
+            conn.commit()
+            conn.close()
+            return "reset"
+        streak = int(row[0] or 0) + 1
+        if streak >= _FAIL_THRESHOLD:
+            conn.execute("DELETE FROM gui_elements WHERE app=? AND description=?", (app, description))
+            conn.commit()
+            conn.close()
+            return "forgotten"
+        conn.execute(
+            "UPDATE gui_elements SET fail_streak=?, last_verified_at=? WHERE app=? AND description=?",
+            (streak, now, app, description),
+        )
+        conn.commit()
+        conn.close()
+        return "kept"
+    except Exception:  # noqa: BLE001 - 静默降级
+        return "missing"

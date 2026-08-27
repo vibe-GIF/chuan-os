@@ -41,6 +41,11 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_OUT_DIR = _ROOT / "data" / "gui"
 
+# 记忆兜底点击后的自愈复核（N58 自愈闭环）——
+# 点击 → 延迟复核 → 判定「是否生效」→ 更新记忆置信度 → 连续失效则遗忘 + 视觉重定位
+_VERIFY_DELAY = 0.3        # 点击与复核之间的延迟（秒），等弹窗/加载出现
+_DHASH_THRESHOLD = 5      # 截图 dHash 差异阈值（64bit 汉明距离，宽松，避免误删好记忆）
+
 
 def _non_windows_msg() -> str:
     return "GUI 自动化目前支持 Windows（pywinauto 依赖 Windows UIA）；当前平台无法使用。"
@@ -323,10 +328,10 @@ def gui_click(
         return "点击失败：未安装 pywinauto（pip install pywinauto）。"
     win, ctl, hint = _resolve_control(desktop, window, description, index)
     if ctl is None:
-        # 记忆兜底：UIA 定位不到但记忆库有坐标 → 前台坐标点击（越用越不用重新定位）
+        # 记忆兜底：UIA 定位不到但记忆库有坐标 → 前台坐标点击 + 自愈复核（N58 闭环）
         mem = _mem_best_coords(win, description)
         if mem:
-            return _click_xy(mem[0], mem[1]) + f"（元素记忆命中「{description}」@ {mem}）"
+            return _click_with_memory_verify(mem[0], mem[1], win, window, description)
         return hint
     # 后台静默（silent / auto 优先）
     if mode in ("auto", "silent"):
@@ -890,3 +895,105 @@ def _mem_best_coords(win, description: str) -> tuple[int, int] | None:
     except Exception:  # noqa: BLE001 - 记忆读失败按无记忆处理
         return None
     return None
+
+
+# ------------------------------------------------------------------ #
+# 记忆兜底自愈闭环（N58 增强）：点击 → 复核 → 置信度 → 遗忘 + 重定位
+# ------------------------------------------------------------------ #
+def _img_dhash(path: str) -> int | None:
+    """图片 dHash（差异哈希）→ 64bit 整数；PIL 缺失 / 读图失败返回 None。"""
+    if not path:
+        return None
+    try:
+        from PIL import Image
+    except Exception:  # noqa: BLE001 - 缺 PIL 降级
+        return None
+    try:
+        img = Image.open(path).convert("L").resize((9, 8))
+        px = list(img.getdata())
+    except Exception:  # noqa: BLE001 - 读图失败降级
+        return None
+    h = 0
+    for row in range(8):
+        for col in range(8):
+            h = (h << 1) | (1 if px[row * 9 + col] > px[row * 9 + col + 1] else 0)
+    return h
+
+
+def _click_effect_changed(before_shot: str, after_shot: str, win, description: str) -> tuple[str, str]:
+    """复核「记忆命中点击」是否生效（N58 自愈闭环核心）。
+
+    信号分级（草案 L1→L2→unknown）：
+    - L1（强）：点击后重新 UIA 定位同 description 控件，能找到说明界面确实变了
+    - L2（辅助）：点击前后截图 dHash 汉明距离，> 阈值判变化，几乎一致判未变化
+    - 都拿不到 → unknown（不判定，保留记忆）
+
+    Returns:
+        (status, evidence)：status ∈ {"changed", "unchanged", "unknown"}
+    """
+    # L1：点击后 UIA 是否已能定位（记忆兜底场景下点击前是定位不到的）
+    if win is not None:
+        try:
+            if _find_control(win, description) is not None:
+                return "changed", "点击后 UIA 已能定位到该控件"
+        except Exception:  # noqa: BLE001 - 单个控件取属性失败跳过
+            pass
+    # L2：截图 dHash 差异
+    b = _img_dhash(_extract_path(before_shot))
+    a = _img_dhash(_extract_path(after_shot))
+    if b is not None and a is not None:
+        dist = bin(a ^ b).count("1")
+        if dist > _DHASH_THRESHOLD:
+            return "changed", "操作前后截图差异明显"
+        return "unchanged", "操作前后截图几乎未变化"
+    return "unknown", "复核信号不可用（缺 PIL 或截图失败）"
+
+
+def _relocate_and_resave(win, window_keyword: str, description: str) -> str:
+    """遗忘后自动视觉重定位并重新记入记忆库（N58 自愈闭环收尾）。"""
+    coords = _visual_locate(description)
+    if not coords:
+        return "记忆已遗忘（旧坐标失效），但视觉重新定位也失败，需人工重新调教该元素。"
+    x, y = coords
+    app = (window_keyword or "").strip() or (win.window_text() if win is not None else "")
+    try:
+        from handlers.gui_memory import gui_mem_save
+
+        gui_mem_save(app=app, description=description, x=x, y=y)
+    except Exception:  # noqa: BLE001 - 记忆写失败不阻断重定位后的点击
+        pass
+    return _click_xy(x, y) + f"（记忆已遗忘旧坐标，视觉重定位「{description}」@ ({x},{y}) 并重新记入元素记忆库）"
+
+
+def _click_with_memory_verify(x: int, y: int, win, window_keyword: str, description: str) -> str:
+    """记忆兜底点击 + 自愈复核（N58 闭环入口）。
+
+    截图(前) → 坐标点击 → 延迟 → 截图(后) → 判定生效与否 →
+    gui_mem_verify 更新置信度 → 连续失效达阈值则遗忘 + 视觉重定位重记。
+    """
+    before = gui_screenshot()
+    first_msg = _click_xy(x, y)
+    time.sleep(_VERIFY_DELAY)
+    after = gui_screenshot()
+    status, evidence = _click_effect_changed(before, after, win, description)
+
+    if status == "unknown":
+        return f"{first_msg}（元素记忆命中「{description}」；本次无法确认点击效果，已保留记忆）"
+
+    app = (window_keyword or "").strip() or (win.window_text() if win is not None else "")
+    try:
+        from handlers.gui_memory import gui_mem_verify
+
+        vr = gui_mem_verify(app, description, status == "changed")
+    except Exception:  # noqa: BLE001 - 复核写失败按无记忆处理
+        vr = "missing"
+
+    if status == "changed":
+        return f"{first_msg}（元素记忆命中「{description}」，点击生效，记忆置信度已更新）"
+    # unchanged：点击可能未生效
+    if vr == "forgotten":
+        return _relocate_and_resave(win, window_keyword, description)
+    return (
+        f"{first_msg}（元素记忆命中但点击可能未生效（{evidence}），"
+        "已累积失效记录；连续失效达阈值将自动遗忘并重新定位）"
+    )
