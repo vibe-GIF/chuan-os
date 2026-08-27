@@ -432,6 +432,7 @@ def _run_alwayson_loop(
     wake_word: "WakeWordDetector | None" = None,
     wake_lines: list[str] | None = None,
     wake_voice: str = "zh-CN-YunjianNeural",
+    guard: Any = None,
 ) -> None:
     listener = UtteranceListener(vad=vad)
     input_q: "queue.Queue[str]" = queue.Queue()
@@ -556,7 +557,16 @@ def _run_alwayson_loop(
             if utterance.audio.size == 0:
                 continue
 
-            # ── 阶段 3：识别 → 派发 → 播报 ──
+            # ── 阶段 3：安全哨兵（N59，默认关）→ 识别 → 派发 → 播报 ──
+            if guard is not None:
+                verdict = guard.check(utterance.audio)
+                if verdict.get("locked"):
+                    print("⚠ 检测到陌生人声纹，已自动锁屏")
+                elif verdict.get("verdict") == "stranger":
+                    print(
+                        f"⚠ 陌生人声纹（{verdict.get('score', 0.0):.2f}，"
+                        f"连续 {verdict.get('streak', 0)} 次）"
+                    )
             print("正在识别…")
             text = stt.transcribe(utterance.audio)
             if not text:
@@ -908,8 +918,24 @@ def run_voice_mode(
         else:
             wake_lines, wake_voice = None, "zh-CN-YunjianNeural"
             print("[麦克风] 常开监听已启动（按 Enter 说话；播报时开口即可打断）")
+
+        # N59 安全哨兵：陌生人识别 + 自动锁屏（config security.lock，默认关）
+        guard = None
+        try:
+            from chuan.security.guard import SecurityGuard
+
+            guard = SecurityGuard.from_config()
+            if guard.enabled:
+                print(
+                    f"[安全] 陌生人自动锁屏已启用（阈值 {guard.threshold}，"
+                    f"连续 {guard.streak} 次触发）"
+                )
+        except Exception:  # noqa: BLE001 - 哨兵初始化失败不影响语音
+            guard = None
+
         _run_alwayson_loop(
-            supervisor, stt, tts, mic, vad, fb, hud, wake_word, wake_lines, wake_voice
+            supervisor, stt, tts, mic, vad, fb, hud, wake_word, wake_lines, wake_voice,
+            guard,
         )
     finally:
         supervisor.shutdown()

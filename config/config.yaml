@@ -231,6 +231,17 @@ hud:
   port: 17889
   scene: true
 
+# === P4 安全增强（N59 / ADR-057）===
+# 借鉴 Aivy「灵魂数据加密到硬件指纹」：敏感数据可绑定本机硬件加密落盘。
+# 默认全关，兼容现有明文数据；开启后再写的数据加密，换机/换盘后不可读。
+security:
+  binding:
+    enabled: false        # 机器绑定加密开关（chuan/security/binding.py）
+  lock:
+    enabled: false        # 陌生人自动锁屏开关（chuan/security/guard.py）
+    threshold: 0.6        # 声纹相似度阈值：低于此判陌生人
+    streak: 3             # 连续 N 次陌生人判定才锁屏（防单次误判）
+
 # === N8/N28 管家主动触发 + 例行自动化 ===
 # 默认关闭；启用后由 housekeeper worker 定期执行下列任务，结果进入提醒队列。
 # N28 例行任务也可运行时用 /routine add <name> <调度> <任务> 管理（持久化到 data/routines.json）：
