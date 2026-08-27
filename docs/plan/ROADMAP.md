@@ -54,7 +54,7 @@ chuan-os 按节点开发，每个节点标「开发用模型」——即**写该
 | **N52 视觉理解 V2** | 扩展 vision_analyze：视频/录屏 ffmpeg 抽首帧 + PDF/表格转图后走视觉分析，缺依赖静默降级（ADR-047） | 能力增强 | ✅ |
 | **N54 声纹防欺骗** | 声纹注册 enroll_speaker + 反欺骗 anti_spoof（V1 规则版：静音/时长/能量 + 已注册声纹比对，float32/int16 缩放兼容，静默降级，ADR-049） | 安全 | ✅ |
 | **N55 向量 RAG 评估闸门** | 确定性量化记忆库规模（内部+外接 .md 篇数/字符）对比阈值 + 漏召回案例留痕，三态判定是否启动本地 embedding+faiss 评估（ADR-050） | 记忆升级 | ✅ |
-| **N56 媒体生成** | 音乐程序化合成写 wav（numpy+wave 零依赖，情绪影响调式速度）+ 视频/图片后端占位（待接 seedance/seedream，ADR-052） | 能力增强 | ✅ |
+| **N56 媒体生成** | 音乐程序化合成写 wav（numpy+wave 零依赖，情绪影响调式速度）+ 视频/图片配置化 HTTP 后端（ADR-052/058：config `media` 段配 endpoint+密钥即用，urllib POST JSON+Bearer，响应按 Content-Type 落盘 data/media，未配置返回可读提示） | 能力增强 | ✅ |
 | **N59 安全增强** | 机器绑定加密（硬件指纹→PBKDF2→Fernet/标准库双路，换机不可读，ADR-057）+ 陌生人识别（复用 N54 声纹库遍历取最高分）+ 自动锁屏（Windows ctypes，连续 streak 次防抖，config security 默认关） | 安全 | ✅ |
 
 > 各阶段明细见下文「N0–N10 节点计划（基础班底阶段）」与「N11–N23 节点计划（架构升级阶段）」。
@@ -346,7 +346,7 @@ N24（可在 N13/N23 后独立开始，复用 Memory + consolidation 蒸馏链�
 | P3 | ✅ 文档口径修正：向量语义召回过度宣称 → 标注「预留未实现」（faiss/vector_store/rag_corpus） → **N48/ADR-043** | 自审 |
 | P3 | ✅ 向量 RAG 评估闸门：确定性量化记忆库规模 + 漏召回案例留痕 → **N55/ADR-050**（触发条件 = 合计 >1000 篇/100 万字符 **且** 有漏召回案例，才启动本地 embedding+faiss 评估；当前未触发，继续 FTS5；faiss 1.15 已装、缺 sentence-transformers/torch） | 自审（2026-08-24 RAG 可行性评估） |
 | P4 | ✅ 机器绑定加密 / 陌生人距离 / 自动锁屏 → **N59/ADR-057**（机器指纹→PBKDF2→Fernet/标准库双路加密，换机/换盘不可读；陌生人识别复用 N54 声纹库；Windows 自动锁屏，连续 streak 次防抖；config security 默认关） | Aivy |
-| P4 | ✅ 媒体生成（音乐程序化合成 V1 → **N56/ADR-052**；视频/图片后端 seedance/seedream 待接入，接口已留） | BaiLongma |
+| P4 | ✅ 媒体生成（音乐程序化合成 V1 → **N56/ADR-052**；视频/图片配置化 HTTP 后端 V2 → **ADR-058**：config `media` 段配 endpoint+密钥即用，mock 全链路验证 18 passed，真实 seedance/seedream 端点待用户配置） | BaiLongma |
 | P4 | ✅ 声纹防欺骗（anti_spoof + enroll_speaker，V1 规则版 → **N54/ADR-049**；重模型后端 pyannote/ecapa 留待扩展） | 自研（voice） |
 | P4 | ⏸️ Electron 桌面壳 + 安装包 + 激活码（面向最终用户）→ **暂缓**：个人使用已有 TUI/HUD/PWA/微信/语音五类投影，暂不需要商业打包；后续有发行需求再评估 | 两家 |
 | P3 | GUI 自动化（借鉴影刀 RPA 能力，补「无 API 软件操作」这条腿） → **N57/ADR-054**（阶段1 截图+元素定位 **✅已完成**：mss→pywinauto 主/vision_analyze 视觉兜底，gui_screenshot/gui_list_windows/gui_locate 三个 handler skill；阶段2 元素操作 **✅已完成**：gui_click/gui_type/gui_scroll/gui_hotkey 四个 handler skill，**默认后台静默模式（UIA 不抢焦点）**+pyautogui 前台坐标兜底，危险热键安全闸拦截；阶段3 闭环 **✅已完成**：gui_operate 组合操作（截图→定位→操作→验证截图），执行器加 mode 参数构成「意图+执行器」，**双模式并存+动态切换**（auto 决策矩阵：能定位→静默/定位不到→前台接管，手动指定静默/接管），**静默可见性**（操作前后截图留痕+data/gui/actions.log 审计），**安全闸**（危险热键拦截+前台接管前 GetLastInputInfo 冲突检测<10s 拒绝+timeout 钳制）；阶段4 边界测试 **✅已完成**：+11 边界/异常路径测试（超时钳制/滚动钳制/热键归一化/pywinauto 语法/危险变体拦截/留痕分层/吞错不阻断），共 48 passed，LEARNINGS-2026-08-25-gui-automation 补记；**UI-TARS 视觉接管增强 ✅已完成**：gui_locate_visual 视觉定位（pywinauto 定位不到的自绘界面兜底，引擎优先配置 UI-TARS 端点→兜底 qwen-vl 返回坐标），接入 gui_operate auto 决策矩阵自动补坐标，找不到停下问用户，共 58 passed（全链路 22 skill）。全量回归 783 passed 无回退）；**真机全链路验证 ✅（2026-08-27 Win11 记事本）**：启动→`gui_locate` 定位编辑区（Document @ 913,585）→`gui_click` 坐标点击→`gui_type` 输入→剪贴板读回→记忆库沉淀正确坐标，全通；修复真机发现的 `type_keys` 默认 `with_spaces=False` 吞空格 bug（显式 `with_spaces=True, pause=0.05`），测试升级锁空格回归，99 passed） | 影刀 |

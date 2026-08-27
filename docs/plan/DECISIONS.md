@@ -861,3 +861,19 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **接入**（`chuan/voice/main.py`）：`run_voice_mode` 构造 `SecurityGuard.from_config()`（默认关，异常不阻断语音），传入 `_run_alwayson_loop`；阶段 3 每句话识别后 `guard.check()`，stranger 打印提示、locked 打印「已自动锁屏」。
 
 **测试**: `tests/test_security_binding.py`（指纹确定性/跨机失配/往返/篡改静默/文件级，13）+ `tests/test_security_guard.py`（识别 owner/stranger/unknown、lock_workstation 双平台 mock、SecurityGuard 防抖/复位/回调吞错/垃圾输入，20）= 33 passed。锁屏测试一律注入假 lock_cb / mock os.name，绝不触发真实锁屏。
+
+## ADR-058: 媒体生成 V2（N56，视频/图片配置化 HTTP 后端，2026-08-27）
+
+**背景**: ADR-052 给 `media_generate("video"/"image")` 留了占位（返回「待接 seedance/seedream API」提示）。seedance/seedream 是 IDE 侧插件（只给 IDE 助手发 GenerateVideo/GenerateImage 指令），chuan 运行时无直连 API；用户暂无真实端点/密钥。要让「配好即用」的骨架先落地、密钥后填。
+
+**决策**: 落地为 V2（接口不变，`media_generate` 签名不动）——把 video/image 占位换成**配置化 HTTP 后端**：
+- **配置**（`config/config.yaml` `media:` 段）：`video`/`image` 子段各含 `endpoint`（默认空）、`api_key_env`（环境变量名，推荐不进 Git）、`api_key_secret`（兜底 `config/secrets.yaml` 字段，同 brain 惯例）、`timeout`（视频 120s / 图片 60s）。默认全空 = 未接入 → 返回可读提示，不抛错。
+- **请求协议**（通用，真实端点格式定了再按需扩展）：`POST JSON {"prompt": ...}` + `Authorization: Bearer <key>`（标准库 `urllib`，零新增依赖，对齐项目「静默降级」惯例）。
+- **落盘**：响应二进制按 `Content-Type` 映射后缀（video/mp4→.mp4、image/png→.png、image/jpeg→.jpg…），未知类型按 kind 缺省后缀（.mp4/.png），写 `data/media/<kind>_<prompt>_<时间戳>.<ext>`；空响应 / 非 2xx / 网络异常 → 可读失败提示。
+- **密钥读取**：环境变量 `SEEDANCE_API_KEY` / `SEEDREAM_API_KEY` 优先 → secrets.yaml 兜底（`_load_media_key`，同 web_search 读百炼 key 的模式）。
+
+**理由**: 「配置密钥后可用」的目标形态（ADR-052 预留），无真实端点时先交付可测试的协议骨架——mock 服务器即可验证全链路（请求格式/鉴权/落盘/降级），真实端点/密钥到位只需改 config.yaml，零代码改动。
+
+**反例**: 不做真实 seedance/seedream 端点的协议适配（无端点可对）；不做轮询式异步任务（假定后端同步返回二进制）；不做密钥入库 Git（secrets.yaml 已 .gitignore）。
+
+**落地记录（已完成，2026-08-27，N56 V2）**: `skills/handlers/media_gen.py`（`_load_media_cfg`/`_load_media_key`/`_gen_http`/`_PROVIDER`/`_KIND_LABEL`/`_CT_EXT`），video/image 分支改调 `_gen_http`；`config/config.yaml` 增 `media:` 段。测试：`tests/test_media_gen.py` +8 例（mock 服务器全链路：image→png 落盘 + 请求协议断言 / video→mp4 / jpeg→jpg 后缀 / 未知 ctype→kind 缺省后缀 / 500 降级 / 空响应降级 / 缺密钥未接入 / endpoint 空未接入），共 18 passed；生产路径（handlers.media_gen）实测未配置时返回可读提示。全量回归 870 passed 无回退。

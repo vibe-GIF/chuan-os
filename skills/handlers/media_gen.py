@@ -1,13 +1,16 @@
-"""媒体生成 handler —— 音乐程序化合成 + 视频/图片后端占位（P4，V1）。
+"""媒体生成 handler —— 音乐程序化合成 + 视频/图片配置化后端（P4，V1/V2）。
 
 被 skills/media_gen.yaml 引用，通过 SkillRegistry 包装为 LangChain Tool。
 
-设计（N56 媒体生成 V1）:
+设计（N56 媒体生成 V1 + ADR-058 V2）:
 - **music**：纯 numpy 程序化合成（正弦 + 指数包络 + 和弦琶音），用标准库 wave
   写 16-bit PCM wav——零新增依赖，任何机器可跑（对齐 voice/sounds.py 的合成惯例）；
   prompt 关键词影响调式/速度（欢快=大调+快、悲伤=小调+慢），确定性可测；
-- **video / image**：后端占位（项目侧已装 seedance/seedream 插件能力，但运行时
-  无直连 API）→ 返回可读提示，绝不抛错；
+- **video / image**：配置化 HTTP 后端（ADR-058）——config.yaml `media` 段配
+  endpoint + 密钥（环境变量 api_key_env → 兜底 secrets.yaml api_key_secret）；
+  请求协议通用：POST JSON {"prompt": ...} + Authorization: Bearer <key>，
+  响应二进制按 Content-Type 落盘 data/media/<kind>_*.{mp4|png}；默认未接入
+  → 返回可读提示（绝不抛错），填配置即启用；
 - 任何失败静默降级返回可读文本（对齐项目惯例）。
 """
 
@@ -92,12 +95,107 @@ def _out_dir(output_dir: str) -> Path:
     return d
 
 
+# ---- 视频/图片配置化后端（ADR-058）----
+_SECRETS_PATH = _ROOT / "config" / "secrets.yaml"
+_PROVIDER = {"video": "seedance", "image": "seedream"}
+_KIND_LABEL = {"video": "视频", "image": "图片"}
+_KIND_EXT = {"video": ".mp4", "image": ".png"}
+_CT_EXT = {
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/quicktime": ".mov",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+def _load_media_cfg() -> dict:
+    """读 config.yaml 的 media 段（{video: {...}, image: {...}}）；读不到返回空 dict。"""
+    p = _ROOT / "config" / "config.yaml"
+    if not p.exists():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(p.open("r", encoding="utf-8")) or {}
+        return data.get("media") or {}
+    except Exception:  # noqa: BLE001 - 配置读不到按未接入处理
+        return {}
+
+
+def _load_media_key(cfg: dict) -> str:
+    """密钥：环境变量 api_key_env 优先，兜底 secrets.yaml api_key_secret（同 brain 惯例）。"""
+    import os
+
+    key = os.environ.get(cfg.get("api_key_env", ""), "")
+    if key:
+        return key
+    try:
+        import yaml
+
+        secrets = yaml.safe_load(_SECRETS_PATH.read_text(encoding="utf-8")) or {}
+        return str(secrets.get(cfg.get("api_key_secret", ""), "") or "")
+    except Exception:  # noqa: BLE001 - 凭证读取失败按未配置处理
+        return ""
+
+
+def _gen_http(kind: str, prompt: str, out_dir: Path) -> str:
+    """调配置的 HTTP 后端生成视频/图片；未接入 / 失败返回可读提示，绝不抛错。
+
+    协议通用（ADR-058）：POST JSON {"prompt": ...} + Bearer 鉴权，
+    响应二进制按 Content-Type（缺省 kind 后缀）落盘 data/media/。
+    """
+    cfg = _load_media_cfg().get(kind) or {}
+    endpoint = str(cfg.get("endpoint", "") or "").strip()
+    key = _load_media_key(cfg)
+    if not endpoint or not key:
+        return (
+            f"（媒体生成：{_KIND_LABEL.get(kind, kind)}后端未接入——"
+            f"待接 {_PROVIDER.get(kind, '')} API，config.yaml media.{kind} "
+            f"配 endpoint + 密钥后可用）"
+        )
+
+    import json
+    import urllib.request
+
+    timeout = int(cfg.get("timeout") or 120)
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps({"prompt": prompt or ""}).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read()
+            ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    except Exception as exc:  # noqa: BLE001 - 网络/非 2xx 一律降级
+        return f"（媒体生成：{_KIND_LABEL.get(kind, kind)}后端调用失败——{exc}）"
+    if not body:
+        return f"（媒体生成：{_KIND_LABEL.get(kind, kind)}后端返回空响应）"
+
+    ext = _CT_EXT.get(ctype) or _KIND_EXT.get(kind, ".bin")
+    stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = re.sub(r"[^\w\u4e00-\u9fff]+", "", prompt or kind)[:_TITLE_MAX]
+    path = out_dir / f"{kind}_{name or kind}_{stamp}{ext}"
+    path.write_bytes(body)
+    if not path.is_file() or path.stat().st_size <= 0:
+        return f"（媒体生成：{_KIND_LABEL.get(kind, kind)}落盘失败）"
+    return f"已生成{_KIND_LABEL.get(kind, kind)} → {path}（{path.stat().st_size} 字节）"
+
+
 def media_generate(kind: str = "music", prompt: str = "", output_dir: str = "") -> str:
-    """媒体生成：音乐合成（写 wav）/ 视频 / 图片（后端占位）。
+    """媒体生成：音乐合成（写 wav）/ 视频 / 图片（配置化 HTTP 后端）。
 
     Args:
         kind: music / video / image。
-        prompt: 描述（音乐时影响情绪/速度）。
+        prompt: 描述（音乐时影响情绪/速度；视频/图片时作为后端 prompt）。
         output_dir: 输出目录（缺省 data/media，相对项目根或绝对路径）。
 
     Returns:
@@ -119,9 +217,9 @@ def media_generate(kind: str = "music", prompt: str = "", output_dir: str = "") 
             return f"已生成音乐 → {path}（{path.stat().st_size} 字节，采样率 {SAMPLE_RATE}Hz）"
 
         if kind == "video":
-            return "（媒体生成：视频后端未接入——待接 seedance API，配置密钥后可用）"
+            return _gen_http("video", prompt, d)
         if kind == "image":
-            return "（媒体生成：图片后端未接入——待接 seedream API，配置密钥后可用）"
+            return _gen_http("image", prompt, d)
 
         return f"（媒体生成：未知类型「{kind}」，支持 music / video / image）"
     except Exception as exc:  # noqa: BLE001 - 任何失败静默降级

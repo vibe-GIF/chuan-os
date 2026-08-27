@@ -242,6 +242,24 @@ security:
     threshold: 0.6        # 声纹相似度阈值：低于此判陌生人
     streak: 3             # 连续 N 次陌生人判定才锁屏（防单次误判）
 
+# === N56 V2 媒体后端：video/image 真实生成（配置化骨架，ADR-058）===
+# 默认全空 = 未接入 → media_generate("video"/"image") 返回可读提示（不抛错）。
+# 填 endpoint + 配置密钥即启用，请求协议通用：POST JSON {"prompt": ...}，
+# Authorization: Bearer <key>；响应二进制直接落盘 data/media/<kind>_*.{mp4|png}。
+# 密钥来源：环境变量（api_key_env，推荐，不进 Git）→ 兜底 config/secrets.yaml 的
+# api_key_secret 字段（同 brain 的 api_key_secret 惯例）。
+media:
+  video:
+    endpoint: ""          # seedance 视频生成 HTTP 端点
+    api_key_env: "SEEDANCE_API_KEY"
+    api_key_secret: "media_video_api_key"
+    timeout: 120          # 视频生成慢，秒
+  image:
+    endpoint: ""          # seedream 图片生成 HTTP 端点
+    api_key_env: "SEEDREAM_API_KEY"
+    api_key_secret: "media_image_api_key"
+    timeout: 60           # 图片生成较快，秒
+
 # === N8/N28 管家主动触发 + 例行自动化 ===
 # 默认关闭；启用后由 housekeeper worker 定期执行下列任务，结果进入提醒队列。
 # N28 例行任务也可运行时用 /routine add <name> <调度> <任务> 管理（持久化到 data/routines.json）：
