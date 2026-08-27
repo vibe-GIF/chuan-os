@@ -162,8 +162,14 @@ class BuiltinAgent(AgentInstance):
             missing = dangling_tool_call_ids(list(msgs))
             if not missing:
                 return
-            # 首选：删掉最新 checkpoint（含悬空 tool_call），回退到上一个
-            if await self._delete_latest_checkpoint(config):
+            # 首选：删掉含悬空 tool_call 的最新 checkpoint（用 aget_state 返回的
+            # 精确 checkpoint_id，避免 checkpoint_id 是 UUID 时按字符串排序删错）
+            cpid, cns = "", ""
+            if state is not None and getattr(state, "config", None):
+                _conf = state.config.get("configurable") or {}
+                cpid = str(_conf.get("checkpoint_id") or "")
+                cns = str(_conf.get("checkpoint_ns") or "")
+            if await self._delete_latest_checkpoint(config, cpid, cns):
                 return
             # 兜底：追加占位 ToolMessage（非 SQLite checkpointer 场景）
             patches = [
@@ -177,28 +183,30 @@ class BuiltinAgent(AgentInstance):
         except Exception:  # noqa: BLE001 - 修复失败不阻断主流程
             return
 
-    async def _delete_latest_checkpoint(self, config: dict[str, Any]) -> bool:
-        """删掉最新 checkpoint（含悬空 tool_call），让 LangGraph 从上一个恢复。
+    async def _delete_latest_checkpoint(
+        self, config: dict[str, Any], checkpoint_id: str = "", checkpoint_ns: str = ""
+    ) -> bool:
+        """删指定 checkpoint（含悬空 tool_call），让 LangGraph 从上一状态恢复。
 
-        成功返回 True；checkpointer 无 SQL 接口时返回 False（兜底走追加）。
+        用 aget_state 返回的精确 checkpoint_id（+ checkpoint_ns），而非按
+        checkpoint_id 字符串排序——checkpoint_id 是 UUID，字符串序 ≠ 时间序，
+        排序会删错。拿不到精确 id 时返回 False，走追加占位 ToolMessage 兜底。
         """
         try:
+            if not checkpoint_id:
+                return False
             checkpointer = getattr(self._graph, "checkpointer", None)
             conn = getattr(checkpointer, "conn", None)
             if conn is None:
                 return False
             thread_id = config["configurable"]["thread_id"]
             await conn.execute(
-                "DELETE FROM checkpoints WHERE thread_id=? AND checkpoint_id IN "
-                "(SELECT checkpoint_id FROM checkpoints WHERE thread_id=? "
-                "ORDER BY checkpoint_id DESC LIMIT 1)",
-                (thread_id, thread_id),
+                "DELETE FROM checkpoints WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=?",
+                (thread_id, checkpoint_ns, checkpoint_id),
             )
             await conn.execute(
-                "DELETE FROM writes WHERE thread_id=? AND checkpoint_id IN "
-                "(SELECT checkpoint_id FROM writes WHERE thread_id=? "
-                "ORDER BY checkpoint_id DESC LIMIT 1)",
-                (thread_id, thread_id),
+                "DELETE FROM writes WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=?",
+                (thread_id, checkpoint_ns, checkpoint_id),
             )
             await conn.commit()
             return True
