@@ -1,8 +1,0 @@
-# 学习 —— 学习辅导（ADR-013 目录格式）
-name: school_agent
-display_name: 学习
-description: 学习辅导、知识讲解、答疑
-role: tutor
-
-tools:
-  - memory

@@ -25,22 +25,18 @@ GREEN = "#5fbf8a"     # 成功
 DEFAULT_COLOR = "#8b9ecb"  # 用户 / 未知名角色
 
 # ---- 角色专属色（persona 名 + 显示名双索引） -------------------------- #
-# 对齐 personas/ 下真实 14 个班底角色。
+# 对齐 personas/ 下真实班底角色（A9 版）。
 ROLE_COLORS: dict[str, str] = {
     "housekeeper": BLUE,          "管家": BLUE,
     "chief_of_staff": MID,        "幕僚长": MID,
     "researcher": VIOLET,         "研究": VIOLET,
-    "programmer": "#34d399",      "编程": "#34d399",
+    "programmer": "#34d399",      "IT": "#34d399",
     "lawyer": "#f59e0b",          "律师": "#f59e0b",
     "bodyguard": "#ef4444",       "保镖": "#ef4444",
-    "social_media": "#f472b6",    "新媒体": "#f472b6",
-    "school_agent": "#22d3ee",    "学习": "#22d3ee",
     "secretary": "#fbbf24",       "秘书": "#fbbf24",
-    "companion": "#f9a8d4",       "陪伴": "#f9a8d4",
     "investment": "#38bdf8",      "投资": "#38bdf8",
-    "social_agent": "#fb7185",    "社交": "#fb7185",
-    "social_learning": "#60a5fa", "社交学习": "#60a5fa",
-    "freelance_agent": "#a3e635", "自由职业": "#a3e635",
+    "finance": "#22d3ee",         "财务": "#22d3ee",
+    "tax": "#a3e635",             "税务": "#a3e635",
 }
 
 # ---- 角色 ASCII 小像（非 emoji） -------------------------------------- #
@@ -48,17 +44,13 @@ ROLE_AVATARS: dict[str, str] = {
     "housekeeper": "⌂",           "管家": "⌂",
     "chief_of_staff": "⚑",        "幕僚长": "⚑",
     "researcher": "◎",            "研究": "◎",
-    "programmer": "⌥",            "编程": "⌥",
+    "programmer": "⌥",            "IT": "⌥",
     "lawyer": "⚖",                "律师": "⚖",
     "bodyguard": "⛨",             "保镖": "⛨",
-    "social_media": "✎",          "新媒体": "✎",
-    "school_agent": "▤",          "学习": "▤",
     "secretary": "✉",             "秘书": "✉",
-    "companion": "✧",             "陪伴": "✧",
     "investment": "▲",            "投资": "▲",
-    "social_agent": "◉",          "社交": "◉",
-    "social_learning": "◈",       "社交学习": "◈",
-    "freelance_agent": "⚙",       "自由职业": "⚙",
+    "finance": "₿",               "财务": "₿",
+    "tax": "§",                   "税务": "§",
 }
 _DEFAULT_AVATAR = "○"
 

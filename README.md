@@ -1,8 +1,8 @@
 # 川流 · chuan-os
 
-> 你的本地多智能体 AI 班底。单入口「幕僚长」按意图路由到 14 个虚拟员工（秘书 / 律师 / 编程 / 研究 / 投资 / 新媒体 / 社交 / 陪伴 / 管家 / 保镖 / 学习 / 社交学习 / 自由职业 / 幕僚长）。
+> 你的本地多智能体 AI 班底（A9 家族办公室版）。单入口「幕僚长」（总公司 CEO）按意图路由到 10 个事业部/部门（财富幕僚：秘书 / 律师 / IT / 研究 / 投资 / 财务 / 税务 / 幕僚长；生活贴身：管家 / 保镖），每个部门下挂具体岗位（agent 实例）干活。
 
-**川流 (chuan-os)** 是在你自己电脑上跑的个人 AI 团队：大脑分三档（本地推理不出机 / 云端通用脑 / 云端编码脑），由一位「幕僚长」统筹 N 个角色化 Agent，配三层记忆、语音交互、Flutter 全息 HUD、微信通道与后台委派。它不是单个聊天机器人，而是一支为「顶级富豪配置的各类人员」建模的虚拟班底。
+**川流 (chuan-os)** 是在你自己电脑上跑的个人 AI 公司：大脑分三档（本地推理不出机 / 云端通用脑 / 云端编码脑），由一位「幕僚长」任 CEO 统筹 N 个事业部（每个部门配岗位/agent 实例干活），配三层记忆、语音交互、Flutter 全息 HUD、微信通道与后台委派。它不是单个聊天机器人，而是一家为「顶级富豪配置的各类人员」建模的虚拟公司。
 
 关键词：`ai-agent` `llm` `ollama` `mcp` `local-ai` `multi-agent` `jarvis` `assistant` `rag` `agent-orchestration`
 
@@ -30,14 +30,14 @@ python -m chuan.voice     # 免提语音（唤醒词）
 python -m chuan.tui       # TUI 调试界面
 ```
 
-> 你说「帮我看下合同」→ 幕僚长自动路由到律师角色 → 律师调用工具分析 → 回复经 guard 安全闸后返回。交互中可输入 `/help` 查看全部命令。
+> 你说「帮我看下合同」→ 幕僚长（总公司）自动路由到律师部门 → 部门调度岗位 agent 调用工具分析 → 回复经 guard 安全闸后返回。交互中可输入 `/help` 查看全部命令。
 
 ## 核心特性
 
 | 特性 | 说明 | 详情 |
 |---|---|---|
 | 六层架构 | 底座→大脑→工具→编排→记忆→接入，幕僚长 L3 为唯一入口 | [架构](docs/diagrams/architecture.svg) |
-| 14 角色班底 | SOUL.md 驱动的角色，独立人设/大脑/工具权限 | [开发指南](docs/guide/DEVELOPMENT.md) |
+| 10 个事业部班底（A9） | SOUL.md 驱动的部门（财富幕僚+生活贴身），独立人设/大脑/工具权限，下挂岗位 agent 实例 | [家办建制](docs/plan/FAMILY-OFFICE.md) |
 | 三层记忆 | 短期会话（SqliteSaver）+ 长期检索（FTS5 + sqlite-vec 向量双路）+ 共享黑板（Obsidian） | [开发指南](docs/guide/DEVELOPMENT.md) |
 | 技能即记忆 | 干完活自动提炼技能（N30），做方案/需求分析/复杂任务按触发词注入协作纪律 | [ADR-025](docs/plan/DECISIONS.md) |
 | 多端接入 | CLI / TUI / 语音（免提）/ 微信 / HUD 悬浮层 / HTTP API / 手机 PWA（HTTPS） | [开发指南](docs/guide/DEVELOPMENT.md) |
@@ -68,7 +68,7 @@ python -m chuan.tui       # TUI 调试界面
 ```
 chuan-os/
 ├── chuan/          # 核心引擎（runtime_supervisor / gateway / voice / tui / channels…）
-├── personas/       # 14 个角色（SOUL.md 目录驱动）
+├── personas/       # 10 个事业部（SOUL.md 目录驱动，A9 家办版）
 ├── agents/         # 外来 agent（pi / prime_agent / claude_code / opencode）
 ├── skills/         # 技能定义 + handlers
 ├── mcp_servers/    # 自定义 MCP 服务端

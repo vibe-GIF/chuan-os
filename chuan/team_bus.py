@@ -112,8 +112,8 @@ def build_ask_role_tool() -> Tool:
         name="ask_role",
         description=(
             "向班底里的其他岗位提问并等待其答复（成员协作直通）。"
-            "例如：调研时让管家岗位查天气、让编程岗位写脚本。"
-            "参数 role 是岗位名（如 管家/研究/编程/秘书），question 是具体问题。"
+            "例如：调研时让管家岗位查天气、让 IT 岗位写脚本。"
+            "参数 role 是岗位名（如 管家/研究/IT/秘书），question 是具体问题。"
             "注意：只有一层协作深度，被问岗位不能再向外提问。"
         ),
         func=_ask_role_sync,

@@ -1,7 +1,0 @@
-# 陪伴 —— 陪伴助手（ADR-013 目录格式）
-name: companion
-display_name: 陪伴
-description: 情感陪伴、日常聊天
-role: companion
-
-tools: []

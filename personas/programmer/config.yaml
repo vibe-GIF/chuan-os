@@ -1,7 +1,7 @@
-# 编程 —— 编程专家（ADR-013 目录格式）
+# IT —— 技术部门（编程/运维/网络/硬件/系统管理；ADR-013 目录格式）
 name: programmer
-display_name: 编程
-description: 写码、调试、工程任务
+display_name: IT
+description: 写码、调试、工程任务、系统运维、网络与硬件管理
 role: programmer
 
 # 强制工具使用指令

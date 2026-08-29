@@ -1,9 +1,0 @@
-# 自由职业 —— 接单与项目管理（ADR-013 目录格式）
-name: freelance_agent
-display_name: 自由职业
-description: 接单、报价、项目管理
-role: freelance
-
-tools:
-  - memory
-  - filesystem

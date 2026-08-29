@@ -923,3 +923,35 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **反例**: 不改 IDE 安装目录脚本；不在 HTML 里加 `window.PreviewerTools` fallback（经分析无效，注入脚本覆盖时序与闭包隔离）；不为单个 HTML 常驻后台服务（脚本按需启动即可）。
 
 **落地记录（已完成，2026-08-27）**: 新增 `scripts/preview_diagrams.py`（含 docstring 说明根因与用法）；实测 `http://127.0.0.1:8322/docs/diagrams/chuan-os-architecture.html` 返回 200。纯工具脚本 + 本文档，无运行时/核心代码改动。
+
+## ADR-062: 执行链路术语重构 —— 角色升格为「部门/事业部」（2026-08-27）
+
+**背景**: 用户指出「角色」一词名不副实：N37–N41 岗位化 1:N 过渡后，`PersonaRole` 承载「岗位 + N 个 agent 实例 + 实例池 + 复杂度分级」，本质上已是独立经营单元，不再是单个角色。用户提出「幕僚长像总公司控制多个子公司」的类比，并要求调整命名。
+
+**决策**: 采用「公司/部门/岗位/外包」四层类比，但保留「角色」为部门级概念（**不是**引入独立中间层）：
+- **幕僚长 = 总公司 CEO**（唯一入口，控股 + 调度，不干活）——保留原名；
+- **角色 = 部门/事业部**（`PersonaRole` 的对外身份：部门 CEO / 事业部总经理，管多个岗位）——**用户可见层改叫「部门」，代码类名 `PersonaRole` 与变量 `_workers` 保持不动**（内部实现名）；
+- **岗位 = agent 实例**（`spawn_agent` 的 `"writer"/"analyst"` 等实例 id；复杂度分级 heavy/medium/simple 选实例）；
+- **外包 = sub_agent**（`call_xxx` 工具，command/prompt/mcp，过 guard 闸）。
+
+**关键澄清（秘书是不是团队）**: 部门可大可小，**不是所有角色都是多岗位团队**——默认 1:1（一个部门一个岗位：秘书/管家/陪伴等轻量岗）；配置 `role_instances`/并行 worker 后才升级为多岗位（编程部门 = 编码岗/分析岗…）。"子公司"只是部门的可选形态，不是身份。
+
+**与既有「团队协作」的区分**: chuan-os 已有 `TeamOrchestrator`（`team_orchestrator.py`，跨部门临时组队并行完成总任务）。「部门」（PersonaRole 的对外身份）是常设组织结构；「团队」（TeamOrchestrator）是跨部门的临时作战编组——两者并存，措辞上「部门/事业部」描述常设单元，「团队协作」描述临时编组。
+
+**理由**: 用户可见层（README/TUI/文档）是人与系统对话的入口，术语准确能显著降低理解成本；代码类名/变量是纯内部实现名，改名（91 处引用）收益低、回归风险高，且 ADR-014/ROADMAP N37–N41 的「岗位」表述已成为既有决策轨迹，全量改名会破坏文档与代码的可追溯对应。
+
+**反例**: 不做代码全量改名（PersonaRole→Team/Division）；不引入独立「事业部」中间对象（`PersonaRole` 本身就是部门，再加一层是过度建模）；不把「秘书」强行描述成多岗位团队（一人一岗同样成立）。
+
+**落地记录（已完成，2026-08-27）**: README.md 首段/核心特性表/项目结构「角色」→「部门/事业部」；TUI `app.py` 三处「角色班底」→「部门班底」（面板标题、渲染、命令面板）。代码类名与测试未动。纯用户可见层改动。
+
+**补充落地（同日，IT 部门改名）**: `programmer` 部门对外显示名由「编程」改「IT」，职责扩为「写码、调试、工程任务、系统运维、网络与硬件管理」。改动：`personas/programmer/config.yaml`（display_name/description/SOUL.md）、`personas/chief_of_staff/config.yaml`（路由关键词补 网络/服务器/装机/驱动/硬件/系统/终端/命令行/脚本/部署）、`personas/chief_of_staff/SOUL.md`、`personas/housekeeper/config.yaml/SOUL.md`（交叉引用「编程」→「IT」）、`config/voices.yaml`（音色键「编程」→「IT」，与回复前缀 display_name 对齐）、`chuan/tui/theme.py`（ROLE_COLORS/ROLE_AVATARS 双索引）、`chuan/team_bus.py`（ask_role 工具描述）、README.md、docs/guide/DEVELOPMENT.md（3.1 概念表/关系行）。内部标识 `programmer` 与测试未动；相关 177 测试通过。管家保留系统自运维（deny code_execution 不变），IT 与管家职责在运维侧叠加、留待后续边界调整。
+
+**补充落地（同日，A9 家族办公室版）**: 按 A9 亿级富豪班底标准裁剪部门建制，以 `docs/plan/FAMILY-OFFICE.md`（A10 家办建制定稿）为蓝本，A9 = 8 部门 + 2 系统底座（资产防火墙/人脉资源池）。
+
+**新增部门（2）**：
+- `personas/finance/`（财务，专职会计）：家族账户/流水归集/对账/内部报表；`deny: [code_execution, opencode]`（管账不写码）
+- `personas/tax/`（税务，税务顾问）：国内税务筹划/跨境税务/信托架构落地；`deny: [code_execution, opencode]`
+
+**删除部门（6）**：新媒体（social_media）、自由职业（freelance_agent）、学习（school_agent）、陪伴（companion）、社交（social_agent）、社交学习（social_learning）——A10 模型无对应岗位，其中社交职责并入外联/人脉池待 A10 版评估。
+
+**同步改动**：`personas/chief_of_staff/config.yaml`（keyword_scoring 移除 5 个已删部门关键词 + 新增 finance/tax；can_dispatch_to 移除 6 个 + 新增 finance/tax）、`config/voices.yaml`（删 6 部门音色 + 新增 财务=zh-CN-XiaoxuanNeural / 税务=zh-CN-YunxiNeural）、`chuan/tui/theme.py`（ROLE_COLORS/ROLE_AVATARS 删 6 + 新增 财务=#22d3ee/₿、税务=#a3e635/§）、README.md / docs/guide/DEVELOPMENT.md（「14 角色班底」→「10 部门（A9）」）、ROADMAP.md。personas 目录现有 10 个部门（财富幕僚：幕僚长/秘书/律师/IT/研究/投资/财务/税务；生活贴身：管家/保镖）。

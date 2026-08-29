@@ -1,0 +1,9 @@
+# 税务 —— 税务顾问（A9 税务筹划；ADR-013 目录格式）
+name: tax
+display_name: 税务
+description: 国内税务筹划、跨境税务、信托架构落地
+role: tax
+# ADR-009：skill/MCP 全局默认挂载，此处只做减法
+deny:
+  - code_execution   # 税务做筹划不写码
+  - opencode

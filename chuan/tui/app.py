@@ -262,7 +262,7 @@ class ChuanTUI(App[None]):
             yield Static(id="topbar")
             with Horizontal(id="body"):
                 with VerticalScroll(id="rolepanel"):
-                    yield Static("角色班底 · 0", id="rolepanel_title")
+                    yield Static("部门班底 · 0", id="rolepanel_title")
                 with Vertical(id="right"):
                     yield VerticalScroll(id="chat")
                     yield Input(id="input", placeholder="输入消息…  /help 查看命令")
@@ -469,7 +469,7 @@ class ChuanTUI(App[None]):
         """渲染左侧班底面板：auto-route + 全部角色（按名字排序）。"""
         panel = self.query_one("#rolepanel", VerticalScroll)
         title = self.query_one("#rolepanel_title", Static)
-        title.update(f"角色班底 · {len(self._roster)}")
+        title.update(f"部门班底 · {len(self._roster)}")
         for child in list(panel.children):
             if child.id != "rolepanel_title":
                 child.remove()
@@ -503,7 +503,7 @@ class ChuanTUI(App[None]):
         commands = [
             ("清除对话", "c", lambda: self._handle_command("/clear")),
             ("自动路由", "a", lambda: self._handle_command("/auto")),
-            ("角色班底", "w", lambda: self._handle_command("/workers")),
+            ("部门班底", "w", lambda: self._handle_command("/workers")),
             ("重看门面", "s", self.action_show_splash),
             ("帮助", "h", lambda: self._handle_command("/help")),
             ("退出", "q", lambda: self._handle_command("/exit")),

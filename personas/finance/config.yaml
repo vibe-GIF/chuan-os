@@ -1,0 +1,9 @@
+# 财务 —— 专职会计（A9 家族账户管家；ADR-013 目录格式）
+name: finance
+display_name: 财务
+description: 家族账户、流水归集、对账、内部报表
+role: finance
+# ADR-009：skill/MCP 全局默认挂载，此处只做减法
+deny:
+  - code_execution   # 财务管账不写码
+  - opencode
