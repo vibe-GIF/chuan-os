@@ -99,12 +99,12 @@
 
 ## ADR-014: 岗位化调度（角色=项目经理，agent=外包工程师）
 
-**决策**: 在「角色（persona）」与「agent（执行者）」之间引入一层「岗位」（`PersonaRole`）作为调度层。岗位不再直接干活，而是像项目经理一样只做拆任务、选 agent、协调、汇总（PLAN → ASSIGN → EXECUTE → SUMMARIZE）；实际执行交给 `AgentPool` 里的 agent（外包工程师）。
+**决策**: 在「角色（persona）」与「agent（执行者）」之间引入一层「岗位」（`Department`）作为调度层。岗位不再直接干活，而是像项目经理一样只做拆任务、选 agent、协调、汇总（PLAN → ASSIGN → EXECUTE → SUMMARIZE）；实际执行交给 `AgentPool` 里的 agent（外包工程师）。
 
 **理由**: 阶段1 的「角色 = 单个 LangGraph ReAct agent」1:1 绑定，角色既要接客又要干活，无法处理复合任务（"先调研、再写报告、再排版"），也无法在多个 agent 间协调。借鉴 dsh-agent-teams 的队长—成员模型与 OpenClaw 的 agent 外包：把「调度」和「执行」分离，岗位专注编排，agent 专注产出。复合任务由此可拆成子任务并行 fan-out，重活还能外包给 pi/OpenCode/Claude Code 等 sub_agent。
 
 **结构约定**:
-- **岗位（PersonaRole）**: `chuan/role.py`。`dispatch()` 四步：PLAN（拆子任务+依赖）→ ASSIGN（每个子任务选 agent）→ EXECUTE（拓扑分波，同波 `asyncio.gather` 并行、波间串行）→ SUMMARIZE（确定性汇总）。
+- **岗位（Department）**: `chuan/role.py`。`dispatch()` 四步：PLAN（拆子任务+依赖）→ ASSIGN（每个子任务选 agent）→ EXECUTE（拓扑分波，同波 `asyncio.gather` 并行、波间串行）→ SUMMARIZE（确定性汇总）。
 - **AgentPool**: `chuan/agent_pool.py`。常驻池存 command agent（pi/prime_agent/claude_code/opencode）+ 按需 `spawn_builtin()` 创建临时专家 agent（specialist 子任务）。
 - **团队状态落盘（TeamStateWriter）**: `chuan/team_state.py`。规划落定即写 `data/teams/<session_id>.json`，子任务状态实时更新，重启可冷恢复「上次 N 个子任务未完成」，并保留归档审计。
 - **成员消息直通（team_bus）**: `chuan/team_bus.py`。全员挂载 `ask_role` 工具，子任务执行中可直接向其他岗位提问并同步等答复；协作深度限 1 层，防 A→B→A 无限递归。
@@ -119,8 +119,8 @@
 **反例**: 岗位不直接调工具/写代码（干活的活交给 agent）；不引入多进程 mailbox 架构（单进程 asyncio 足够，落盘仅用于冷恢复与归档）。
 
 **落地记录（已完成，2026-08）**:
-- `chuan/role.py`（PersonaRole：规划/分波并行/汇总/重试/退化检测/specialist spawn）、`chuan/agent_pool.py`（常驻池 + 动态 spawn）、`chuan/team_state.py`（磁盘真相）、`chuan/team_bus.py`（ask_role 一层协作）全部落地。
-- `runtime_supervisor.py`：`_workers` 改为 `dict[str, PersonaRole]`，`dispatch()` 路由到岗位；`wake_up()` 注册 `ask_role` 工具 + 团队状态冷恢复。
+- `chuan/role.py`（Department：规划/分波并行/汇总/重试/退化检测/specialist spawn）、`chuan/agent_pool.py`（常驻池 + 动态 spawn）、`chuan/team_state.py`（磁盘真相）、`chuan/team_bus.py`（ask_role 一层协作）全部落地。
+- `runtime_supervisor.py`：`_workers` 改为 `dict[str, Department]`，`dispatch()` 路由到岗位；`wake_up()` 注册 `ask_role` 工具 + 团队状态冷恢复。
 - 测试：`tests/test_role.py` 覆盖规划门槛、任务拆分校验、分波并行、specialist spawn、串行/并行执行等。
 
 ## ADR-015: 微信接入选企业微信（WeCom）自建应用
@@ -171,17 +171,17 @@
 ## ADR-018: P1 监督者全监控（Supervisor Monitor，轨迹+死胡同+redirect）
 
 **决策**: 借鉴 NVIDIA AVO 的 Supervisor「CEO 只看轨迹、不干活」定位，补全幕僚长的**全程监控**层——不再只做初始路由，而是记录每次 worker 执行轨迹，确定性检测死胡同并给出 redirect 决策，防止「反复失败 / 循环 / 停滞」空耗 token 与时间：
-- **轨迹记录**：`SupervisorMonitor` 以 `trace_id`（会话 id）聚合每次 `PersonaRole.dispatch` 的执行路径，`record_step` 记录 role + 子任务 + attempt + agent + 成功与否 + 结果内容；
+- **轨迹记录**：`SupervisorMonitor` 以 `trace_id`（会话 id）聚合每次 `Department.dispatch` 的执行路径，`record_step` 记录 role + 子任务 + attempt + agent + 成功与否 + 结果内容；
 - **死胡同检测（全确定性，不依赖 LLM）**：① 循环——最后两次输出字符 2-gram 覆盖度 ≥0.95；② 反复失败——连续失败 ≥N 次且结果相似（≥0.7）或尝试耗尽（≥max_fail_attempts）；③ 停滞——轨迹存活超时（watchdog，单步长期悬挂也可判）；单步信号不足绝不误判；
 - **redirect 决策**：`abort`（无候选 agent 且循环/停滞/耗尽，不再空耗）/ `switch_agent`（有候选换 agent，排除当前）/ `inject_hint`（同一 agent 注入「换思路」提示重试）；决策记录进面板（`_dead_ends` / `_redirects`）；
-- **旁路设计**：监控与 redirect 是增强层，任何异常/误判都不阻断主流程（`_monitor is None` 短路 + 全方法 try/except）；重试循环在**重试前**查询死胡同，`PersonaRole._run_subtask` 应用决策；
+- **旁路设计**：监控与 redirect 是增强层，任何异常/误判都不阻断主流程（`_monitor is None` 短路 + 全方法 try/except）；重试循环在**重试前**查询死胡同，`Department._run_subtask` 应用决策；
 - **可视化**：`RuntimeSupervisor.monitor_status()` 快照 → TUI `/monitor` 面板 + 状态栏指示 + CLI `/monitor`。
 
 **理由**: 免费模型工具调用不稳定（项目教训），监控判断必须可复现、可测试，故全走确定性启发式而非 LLM；N21 harness 已解决「后台任务执行」，「监控执行轨迹」是补齐「发现卡死」这一环——不监控就无法知道后台任务是否在原地打转。
 
 **反例**: 不做持久化（监控数据是瞬态诊断，重启即清，不落盘）；不把 redirect 做成强制干预（只是增强层，核心调度逻辑不被监控绑架）；不做 LLM 总结式监控（成本高且不可测）。
 
-**落地记录（已完成，2026-08-24，N23）**: `chuan/gateway/supervisor_monitor.py`（SupervisorMonitor：start_trace/record_step/check_dead_end/_redirect/snapshot，阈值可注入）+ `role.py`（`PersonaRole` 注入 `monitor`，`_begin_trace`/`_finish_trace`/`_record_step`/`_check_dead_end`，重试前查死胡同并应用 redirect，旁路 try/except）+ `agent_spawner.py`（spawn 时注入 `supervisor_monitor`）+ `runtime_supervisor.py`（`self.supervisor_monitor` + `monitor_status()`）+ `bridge.py`/`tui/app.py`（`/monitor` 面板 + 状态栏指示）+ `main.py`（CLI `/monitor`）；`tests/test_supervisor_monitor.py`（19 例：轨迹生命周期/裁剪/三类死胡同/redirect 决策/相似度边界/无 monitor 短路），全量 348 passed、2 skipped。
+**落地记录（已完成，2026-08-24，N23）**: `chuan/gateway/supervisor_monitor.py`（SupervisorMonitor：start_trace/record_step/check_dead_end/_redirect/snapshot，阈值可注入）+ `role.py`（`Department` 注入 `monitor`，`_begin_trace`/`_finish_trace`/`_record_step`/`_check_dead_end`，重试前查死胡同并应用 redirect，旁路 try/except）+ `agent_spawner.py`（spawn 时注入 `supervisor_monitor`）+ `runtime_supervisor.py`（`self.supervisor_monitor` + `monitor_status()`）+ `bridge.py`/`tui/app.py`（`/monitor` 面板 + 状态栏指示）+ `main.py`（CLI `/monitor`）；`tests/test_supervisor_monitor.py`（19 例：轨迹生命周期/裁剪/三类死胡同/redirect 决策/相似度边界/无 monitor 短路），全量 348 passed、2 skipped。
 
 **落地记录（HUD 可视化，2026-08-24，N23 续）**: 将监督者数据接入 Flutter HUD 悬浮层，实现实时可视化——`supervisor_monitor.py` 新增 `hud_summary()`（精简快照：stats{traces/active/dead_ends/redirects} + 最近 3 条轨迹 `top_traces` + 最近死胡同 `latest_dead`，只带面板所需最小字段）；`channels/hud.py` 新增 `HudChannel.push_monitor()`（发送 `monitor:{json}` 命令）+ 共享助手 `push_monitor_snapshot(supervisor, hud)`（无监督者/未启动时静默降级）；`main.py` 与 `voice/main.py` 在 dispatch 完成后推送快照（不阻塞主流程）；Flutter `jarvis_overlay.dart` 的 `handleCommand` 解析 `monitor:` 存入 `ValueNotifier<Map?>`，左下 SYSTEM STATUS 面板新增 SUPERVISOR 区块（ACTIVE/DEAD/RD 统计 + 最近死胡同，`FittedBox` 防窄面板溢出）。测试：`test_hud.py` +5 例（push_monitor JSON 载荷/不可序列化降级/共享助手转发/静默降级）、`test_supervisor_monitor.py` +2 例（hud_summary 精简字段与无数据），全量 354 passed、2 skipped。注：本机未装 Flutter SDK，Dart 改动经人工复核（活跃代码路径为根 `agent_overlay.dart`→`jarvis_overlay.dart`，`overlay/core` 为未接线重构副本）。
 
@@ -221,14 +221,14 @@
 **决策**: 在记忆链路之上加**可复用「怎么做」知识原子**闭环，实现 7 层模型 L3「从做到造」——重复做一件事，把过程提炼成原子，下次同类任务自动复用：
 - **存储**：`notes/howto/<name>.md`（`HowToStore`，命名空间 `notes/howto`），frontmatter 含 `trigger`（触发场景关键词）/`tools`/`importance`/`confidence`，正文 `## 触发场景` + `## 怎么做`；同名归并（保留 created），复用 Memory FTS5 索引；
 - **沉淀**：`howto_save` 工具（agent 识别到可复用过程时显式沉淀，避免自动脑补——免费模型教训）；`howto_find`/`howto_show` 供检索/读全量；
-- **复用（闭环关键）**：`HowToStore.suggest(task)` 确定性按任务文本召回 top 原子（命中分 ≥ 10 才注入，过滤「怎么做」小节头的通用 token 噪声）；`PersonaRole._maybe_inject_howto` 在显式 agent、单 agent、子任务三处开工前自动注入「参考做法」，agent 照着做而非从零开始；
-- **接线**：`persona_loader` 全角色注入 howto 工具；`agent_spawner` 把 `memory` 传给 `PersonaRole`。
+- **复用（闭环关键）**：`HowToStore.suggest(task)` 确定性按任务文本召回 top 原子（命中分 ≥ 10 才注入，过滤「怎么做」小节头的通用 token 噪声）；`Department._maybe_inject_howto` 在显式 agent、单 agent、子任务三处开工前自动注入「参考做法」，agent 照着做而非从零开始；
+- **接线**：`persona_loader` 全角色注入 howto 工具；`agent_spawner` 把 `memory` 传给 `Department`。
 
 **理由**: 7 层模型分析（2026-08-24）指出 chuan 卡在 L4/L5，缺 L3「从做到造」沉淀闭环——现有 GEPA 只把单条经验追加到角色 MEMORY.md（无触发场景、无检索复用），wiki 归位存「结论/待办」而非「怎么做」。知识原子补齐「怎么做」这一环：沉淀显式化（防脑补）、复用确定性（无 LLM 进关键路径）、阈值防噪声（小节头 token 干扰）。
 
 **反例**: 不做无人工把关的自动沉淀（agent 每次成功都自动写直接入库会造成噪声与脑补；N27 改为自动提炼入 staging + 人工确认后才入库，防噪声由门槛 + 人工把关承担）；不做向量召回（复用走 FTS5 关键词，未达 ROADMAP P3 RAG 闸门）。
 
-**落地记录（已完成，2026-08-24，N26；并入 wiki 后更新）**: `chuan/howto.py`（`HowToStore`：save 委托 `Wiki.write(entity_type="howto")` 获 index/lint/归并留痕，find 从 `## 触发场景` 小节解析 trigger、tools 走 frontmatter tags，suggest 阈值注入）+ `chuan/wiki.py`（`WIKI_NAMESPACES` 5 类→6 类加 `howto`，自动生成 `howto/index.md` + lint/wiki_search 覆盖）+ `chuan/memory_tools.py`（`build_howto_tools`：howto_save/howto_find/howto_show）+ `chuan/persona_loader.py`（全角色注入）+ `chuan/role.py`（`PersonaRole.__init__` 增 `memory` 参数，`_maybe_inject_howto` 接入显式/单 agent/子任务三处）+ `chuan/gateway/agent_spawner.py`（传 `memory`）。测试：`tests/test_howto.py` 10 例（保存归并/trigger 解析/wiki index+lint+search 集成/阈值注入/无命中不注入/角色注入/工具暴露），全量 387 passed、2 skipped。
+**落地记录（已完成，2026-08-24，N26；并入 wiki 后更新）**: `chuan/howto.py`（`HowToStore`：save 委托 `Wiki.write(entity_type="howto")` 获 index/lint/归并留痕，find 从 `## 触发场景` 小节解析 trigger、tools 走 frontmatter tags，suggest 阈值注入）+ `chuan/wiki.py`（`WIKI_NAMESPACES` 5 类→6 类加 `howto`，自动生成 `howto/index.md` + lint/wiki_search 覆盖）+ `chuan/memory_tools.py`（`build_howto_tools`：howto_save/howto_find/howto_show）+ `chuan/persona_loader.py`（全角色注入）+ `chuan/role.py`（`Department.__init__` 增 `memory` 参数，`_maybe_inject_howto` 接入显式/单 agent/子任务三处）+ `chuan/gateway/agent_spawner.py`（传 `memory`）。测试：`tests/test_howto.py` 10 例（保存归并/trigger 解析/wiki index+lint+search 集成/阈值注入/无命中不注入/角色注入/工具暴露），全量 387 passed、2 skipped。
 
 ## ADR-022: 知识原子自动沉淀 + 人工确认（N27，L3 闭环补「自动」）
 
@@ -238,7 +238,7 @@
 - **staging 队列**：`data/memory/howto_staging/<name>.json`（vault 之外，不污染 FTS/wiki 索引），`HowToStore.stage/staging_list/staging_get/approve/discard`；
 - **人工确认**：`approve`（可 rename）经 `Wiki.write` 入库（白得 index/lint/双链），`discard` 丢弃；CLI `/howto`（show/approve/discard）+ `RuntimeSupervisor.howto_*`；
 - **主流程集成**：`RuntimeSupervisor.dispatch` 前置把「确认/丢弃（可带名字）」消息路由到待确认候选（多条时列清单请指定名字，避免误动），dispatch 结束后若新增候选则往回复追加「[待确认]」提示——在自然对话里即可确认，无需记 `/howto` 命令；确定性词表 + 精确匹配防误吞正常消息，全程旁路 try/except；
-- **挂接**：`PersonaRole._wrap_result` 收尾旁路调用（显式 agent/单 agent/规划汇总三路径全覆盖），异常静默不阻断答复。
+- **挂接**：`Department._wrap_result` 收尾旁路调用（显式 agent/单 agent/规划汇总三路径全覆盖），异常静默不阻断答复。
 
 **理由**: N26 沉淀靠 agent 显式 `howto_save`，免费模型不会主动干，闭环缺「自动」一环（借鉴 Claude Code Auto Memory 后台提取）。但直接自动入库会噪声化知识库（N26 反例），故加「门槛过滤 + 人工确认」双闸：门槛防明显垃圾，人工把关防模型脑补——知识库只被确认过的做法增长，而非每次成功任务都长一个原子。
 
@@ -251,7 +251,7 @@
 **决策**: 把「例行任务（routine）」做成一等概念，让系统**到点自转**而非等召唤——补上 N26/N27「从做到造」闭环的例行化载体：
 - **例行任务**：`RoutineManager`（`chuan/routines.py`）—— `Routine{name, message, schedule, agent, archive_to_wiki}`，持久化 `data/routines.json`（磁盘真相，重启不丢）；调度写法 `"fri 17:30"`（周几+时刻，dow 支持 mon..sun / 周一..周日）或 `"every 3600"`（间隔），兼容 `@` 紧凑写法；
 - **每周调度**：`ProactiveScheduler.add_weekly_job()` —— `ScheduledJob` 增 `weekly` 字段，`_next_weekly` 计算下次发生时刻，触发后自动重排到下一周；与既有 interval 任务并存；
-- **自转链路**：例行到点 → `dispatch_to` → `PersonaRole` 开工自动注入 howto 参考做法（N26）→ 跑完自动沉淀候选待确认（N27）→（可选 `archive_to_wiki`）结果归档 wiki `sources/` 原料层供每日 ingest 归位（N24）→ 下周复用已改进的原子；
+- **自转链路**：例行到点 → `dispatch_to` → `Department` 开工自动注入 howto 参考做法（N26）→ 跑完自动沉淀候选待确认（N27）→（可选 `archive_to_wiki`）结果归档 wiki `sources/` 原料层供每日 ingest 归位（N24）→ 下周复用已改进的原子；
 - **运行时管理**：CLI/TUI `/routine`（list / add `<name> <调度> <任务> [--wiki]` / remove），`RuntimeSupervisor.routine_add/list/remove`；`wake_up` 自动应用持久化例行并启动调度线程；
 - **归档钩子**：`ProactiveScheduler.on_routine_done` 回调 → `_archive_routine_result`（错误提醒跳过，未开 archive 跳过）。
 
@@ -282,7 +282,7 @@
 - **技能形态**：prompt 型 skill（`skills/<name>.yaml`，`type: prompt`）—— `name`/`description`/`trigger.keywords`（触发关键词）+ `prompt`（可复用做法）；`Skill` 类补齐 `prompt` 字段、`matches(text)` 触发匹配、`render_prompt()` 渲染；
 - **自动提炼**（`chuan/skill_creator.py`）：确定性门槛（失败/任务<8 字/结果<40 字/已有同名技能/队列满 30/同任务重复 → 跳过），纯确定性提炼（复用 howto_distill 剥前缀取名、结果作做法、任务作触发场景；关键词提取 = CJK 词/二元组去停词，上限 8）；
 - **人工确认**：staging 队列（`data/memory/skill_staging/`，vault 外不污染 FTS/wiki）→ `/skill` show/approve/discard；approve 写入 `skills/<name>.yaml`（`yaml.safe_dump` 保证中文/特殊字符安全）+ **运行时注册**进 `SkillRegistry.add`（本会话即生效，无需重启）；
-- **复用注入**：`PersonaRole._inject_reference` 开工前注入——**已注册技能（触发词精确命中）优先**，howto 知识原子（FTS 召回）兜底，避免双重注入；`_maybe_inject_skill` 每次现读 `skills/`（廉价）保证同会话新确认技能即时生效；`_maybe_create_skill` 与 `_maybe_distill_howto` 并列挂接 `_wrap_result`（全旁路）；
+- **复用注入**：`Department._inject_reference` 开工前注入——**已注册技能（触发词精确命中）优先**，howto 知识原子（FTS 召回）兜底，避免双重注入；`_maybe_inject_skill` 每次现读 `skills/`（廉价）保证同会话新确认技能即时生效；`_maybe_create_skill` 与 `_maybe_distill_howto` 并列挂接 `_wrap_result`（全旁路）；
 - **管理**：`RuntimeSupervisor.skill_staging/show/approve/discard/status` + CLI/TUI `/skill` 面板（已注册 prompt 技能数 + 待确认队列）。
 
 **理由**: 与 howto 分层——howto 是**知识**（FTS 召回注入「参考做法」），skill 是**能力**（触发关键词精确命中注入「复用做法」）。「干完活自动沉淀 SKILL.md」是 L3「从做到造」的收尾：重复做一件事 → 不只沉淀知识原子，还沉淀可注册技能 → 下次同类任务按既有技能执行。
@@ -322,14 +322,14 @@
 
 **决策**: 在路由决策确定目标岗位**之前**，就按用户消息并行预取「普通长期记忆 + wiki 知识库实体页」两类上下文，路由落定后把预取结果渲染成注入块前置到岗位任务文本，让 agent 首轮直接带相关背景开工：
 - **预取器**（`chuan/aci.py` `AciPrefetcher`）：`prefetch(message)` 用 `ThreadPoolExecutor` 并行跑两个召回源——`memory.recall`（FTS5 token 级，普通记忆，按 `min_score` 阈值滤噪声）与 `memory.recall(namespaces=wiki 五目录)`（topics/entities/analysis/projects/howto，与 memory 源**互斥**不重复）；`render(bundle)` 渲染成 `【预判上下文】…` 注入块（无命中返回空串）；
-- **注入点**：`RuntimeSupervisor.dispatch`/`dispatch_async` 路由前调用 `_aci_prefetch_block(message)`，把注入块经 `dispatch_to(..., aci_context=)` / `_dispatch_chief(..., aci_context=)` 透传给 `PersonaRole.dispatch(task, session_id, aci_context)`，在 `_dispatch_inner` 前置到任务文本（仅本岗位单次生效，不污染调用方原始 task）；
+- **注入点**：`RuntimeSupervisor.dispatch`/`dispatch_async` 路由前调用 `_aci_prefetch_block(message)`，把注入块经 `dispatch_to(..., aci_context=)` / `_dispatch_chief(..., aci_context=)` 透传给 `Department.dispatch(task, session_id, aci_context)`，在 `_dispatch_inner` 前置到任务文本（仅本岗位单次生效，不污染调用方原始 task）；
 - **面板**：`RuntimeSupervisor.aci_status()` + CLI/TUI `/aci` 面板（最近预取记忆/wiki 命中数 + 是否注入）。
 
 **理由**: agent 首轮常要自己调 `recall_memory`/`wiki_search` 摸上下文（首轮空转）。借鉴 BaiLongma「预判注入」：在路由（尤其 LLM 兜底选岗的耗时窗口）进行中并行预取，路由一落定上下文即就位，减少首轮空转、加快响应。
 
 **反例**: 不用 LLM 预判（免费模型 tool-calling 不稳，确定性 FTS 召回即可靠又可测）；不注入 howto/skill（`_inject_reference` 已覆盖 L3 做法复用，ACI 只负责记忆+wiki 背景，避免重复注入）；预取失败绝不影响路由与执行（全旁路 try/except 吞异常）。
 
-**落地记录（已完成，2026-08-24，N33）**: `chuan/aci.py`（`AciPrefetcher`：并行预取 memory+wiki、render 注入块、stats 面板，全旁路）+ `chuan/runtime_supervisor.py`（`_aci_prefetch_block`/`aci_status` + `dispatch`/`dispatch_async`/`dispatch_to`/`_dispatch_chief(_async)` 透传 aci_context）+ `chuan/role.py`（`PersonaRole.dispatch(..., aci_context)` 前置注入）+ `chuan/main.py` + `chuan/tui/bridge.py` + `chuan/tui/app.py`（`/aci` 面板 + /help）。测试：`tests/test_aci.py` 14 例（预取命中/互斥/空库/阈值/旁路隔离/render/stats/岗位透传/管理接口）+ `tests/test_tui.py` 2 例（bridge 转发 + `/aci` 面板渲染），全量 483 passed、2 skipped。
+**落地记录（已完成，2026-08-24，N33）**: `chuan/aci.py`（`AciPrefetcher`：并行预取 memory+wiki、render 注入块、stats 面板，全旁路）+ `chuan/runtime_supervisor.py`（`_aci_prefetch_block`/`aci_status` + `dispatch`/`dispatch_async`/`dispatch_to`/`_dispatch_chief(_async)` 透传 aci_context）+ `chuan/role.py`（`Department.dispatch(..., aci_context)` 前置注入）+ `chuan/main.py` + `chuan/tui/bridge.py` + `chuan/tui/app.py`（`/aci` 面板 + /help）。测试：`tests/test_aci.py` 14 例（预取命中/互斥/空库/阈值/旁路隔离/render/stats/岗位透传/管理接口）+ `tests/test_tui.py` 2 例（bridge 转发 + `/aci` 面板渲染），全量 483 passed、2 skipped。
 
 ## ADR-029: HUD 通道升级 SCENE 协议（N34，core 持 scene → UI 纯投影）
 
@@ -349,14 +349,14 @@
 
 **决策**: 给岗位调度加「子任务级断点续跑」——长任务（多子任务、多波并行）执行中被打断（语音开口 / Esc 软中断 / 进程重启）时，已完成的子任务结果不丢，下次可复用：
 - **断点档案**（`chuan/gateway/task_resume.py` `RoleTaskResumeStore`）：`data/task_resume/<session_id>.json` 磁盘真相，一个 session 一份；`save_plan` 规划落定即存（id/description/agent/depends_on），`save_result` 每个子任务完成即存（success/content 截断 4000/agent/at），`resume_plan` 读回、`list_resumable` 面板统计（total/done）、`clear` 清除；session_id 白名单清洗防路径注入，全程旁路异常吞掉；
-- **复用**：`PersonaRole._run_subtask` 收到 `resume_hits`（上次成功子任务结果映射）时直接返回 `[续跑复用] …` 缓存结果，**跳过 agent 调用**；`_rehydrate_plan` 从档案重建 plan（复用上次规划而非重新 LLM 规划，保证 id/依赖与缓存结果对齐）——已完成子任务复用、只跑未完成/失败部分；
+- **复用**：`Department._run_subtask` 收到 `resume_hits`（上次成功子任务结果映射）时直接返回 `[续跑复用] …` 缓存结果，**跳过 agent 调用**；`_rehydrate_plan` 从档案重建 plan（复用上次规划而非重新 LLM 规划，保证 id/依赖与缓存结果对齐）——已完成子任务复用、只跑未完成/失败部分；
 - **入口**：`RuntimeSupervisor.resume_to(worker, session_id)`/`resume_list`/`resume_clear` + CLI/TUI `/resume <session> <worker>` 看板（🟢 progress total/done）。
 
 **理由**: N21 harness 管「单次会话后台委派」，N19 岗位调度跑长任务时被打断，已执行子任务（尤其依赖后续的波次结果）如果丢弃就得整轮重跑——浪费模型调用与耗时。借鉴 Aivy「流式打断不丢工具」：打断时保留已执行工具结果，只重跑未完成部分。
 
 **反例**: 不做 agent 调用级中断（底层 LangGraph 线程无法强杀，Esc 软中断后线程继续后场跑完，N19 已如此）；不做跨 session 自动续跑（resume 必须显式指定 worker + session，避免误恢复；同任务文本匹配仅在档案 task 一致时复用）；不做结果版本合并（同一子任务重跑成功即覆盖旧结果，简单可测）。
 
-**落地记录（已完成，2026-08-24，N35）**: `chuan/gateway/task_resume.py`（`RoleTaskResumeStore`：save_plan/save_result/resume_plan/list_resumable/clear，旁路 + 白名单）+ `chuan/role.py`（`PersonaRole.__init__(..., resume_store)` + `dispatch(..., resume)` + `_dispatch_inner` resume 分支（复用缓存 plan + resume_hits）+ `_rehydrate_plan` + `_execute(..., resume_hits)` 跳过已完成子任务 + `_run_subtask(..., resume_hits)` 命中复用 + 完成即存结果）+ `chuan/runtime_supervisor.py`（`resume_store` 实例 + `resume_to/list/clear`）+ `chuan/gateway/agent_spawner.py`（注入 resume_store）+ `chuan/main.py` + `chuan/tui/bridge.py` + `chuan/tui/app.py`（`/resume` 面板与命令）。测试：`tests/test_task_resume.py` 9 例（store 持久化/进度统计/清除/截断/rehydrate/复用跳过 agent/全量执行/新结果回写）+ `tests/test_tui.py` 2 例（bridge 转发 + `/resume` 面板渲染），全量 503 passed、2 skipped。
+**落地记录（已完成，2026-08-24，N35）**: `chuan/gateway/task_resume.py`（`RoleTaskResumeStore`：save_plan/save_result/resume_plan/list_resumable/clear，旁路 + 白名单）+ `chuan/role.py`（`Department.__init__(..., resume_store)` + `dispatch(..., resume)` + `_dispatch_inner` resume 分支（复用缓存 plan + resume_hits）+ `_rehydrate_plan` + `_execute(..., resume_hits)` 跳过已完成子任务 + `_run_subtask(..., resume_hits)` 命中复用 + 完成即存结果）+ `chuan/runtime_supervisor.py`（`resume_store` 实例 + `resume_to/list/clear`）+ `chuan/gateway/agent_spawner.py`（注入 resume_store）+ `chuan/main.py` + `chuan/tui/bridge.py` + `chuan/tui/app.py`（`/resume` 面板与命令）。测试：`tests/test_task_resume.py` 9 例（store 持久化/进度统计/清除/截断/rehydrate/复用跳过 agent/全量执行/新结果回写）+ `tests/test_tui.py` 2 例（bridge 转发 + `/resume` 面板渲染），全量 503 passed、2 skipped。
 
 ## ADR-031: 外接知识库检索工具（N36，临时查 Obsidian 库，与内部记忆隔离）
 
@@ -375,7 +375,7 @@
 ## ADR-032: 岗位化 1:N 过渡（N37，岗位多 agent 池 + 会话级状态隔离）
 
 **决策**: 把「岗位直接创建单 ReAct agent」的 1:1 逐步迁移为「岗位可管理 N 个 agent」——本迭代落地第一台阶：
-- **岗位多 agent 池**（`chuan/role.py`）：`PersonaRole._agents: dict[instance_id, agent]`，默认实例 id="default"（`_ensure_default_agent` 懒加载，向后兼容 1:1）；新增 `spawn_agent(instance_id, system_prompt="", tools=None, model=None)` 显式扩容（同 id 幂等复用；无模型/无 spawn 能力时回退默认实例，不抛错）；`agent_count()`/`list_agents()` 暴露岗位持有的 N 个实例（默认 + 扩容）；
+- **岗位多 agent 池**（`chuan/role.py`）：`Department._agents: dict[instance_id, agent]`，默认实例 id="default"（`_ensure_default_agent` 懒加载，向后兼容 1:1）；新增 `spawn_agent(instance_id, system_prompt="", tools=None, model=None)` 显式扩容（同 id 幂等复用；无模型/无 spawn 能力时回退默认实例，不抛错）；`agent_count()`/`list_agents()` 暴露岗位持有的 N 个实例（默认 + 扩容）；
 - **会话级状态隔离**（关键）：`progress` 改按 session 隔离（`_session_progress: dict[session_id, dict]` + `_session_progress_view(session_id)`），role 级 `self.progress` 保留为「最近会话」视图（1:1 时代的 `role.progress["s1"]` 直读法兼容）；团队状态落盘 `_state_writer` 改按会话隔离（`_state_writers: dict[session_id, TeamStateWriter]`，各会话各写各的 `data/teams/<session_id>.json`）——**同一岗位可并行服务多个会话（微信/CLI/语音），进度与落盘互不串扰**；
 - **可观测**：`chuan/gateway/heartbeat.py` 健康报告新增 `role_agents`（各岗位 agent 实例总数，`getattr` 兜底），摘要行显示 `agent N`。
 
@@ -383,7 +383,7 @@
 
 **反例**: 不做 1:N 默认启用（现有「auto 子任务仍走默认实例」的调度语义不动，扩容是显式 `spawn_agent` 能力）；不做岗位内 agent 实例的自动回收（实例由岗位持有到销毁，与 `_specialists`/常驻池一致，避免 LRU 复杂度）；不做跨岗位 agent 共享（每岗位实例独立，杜绝跨岗位状态耦合）。
 
-**落地记录（已完成，2026-08-24，N37）**: `chuan/role.py`（`PersonaRole._agents` + `_ensure_default_agent` 纳入池 + `spawn_agent`/`agent_count`/`list_agents` + `_session_progress`/`_session_progress_view` + `_state_writers` 会话隔离，删除死代码 `_default_agent` 字段）+ `chuan/gateway/heartbeat.py`（`role_agents` 汇总 + 摘要 `agent N`）。测试：`tests/test_role.py` 新增 7 例（默认实例入池/扩容到 N/同 id 幂等/无模型兜底/default+扩容共存/会话进度隔离/并发会话不串扰 + 团队落盘按会话）+ `tests/test_gateway_components.py` 新增 1 例（role_agents 汇总），全量 519 passed、2 skipped。
+**落地记录（已完成，2026-08-24，N37）**: `chuan/role.py`（`Department._agents` + `_ensure_default_agent` 纳入池 + `spawn_agent`/`agent_count`/`list_agents` + `_session_progress`/`_session_progress_view` + `_state_writers` 会话隔离，删除死代码 `_default_agent` 字段）+ `chuan/gateway/heartbeat.py`（`role_agents` 汇总 + 摘要 `agent N`）。测试：`tests/test_role.py` 新增 7 例（默认实例入池/扩容到 N/同 id 幂等/无模型兜底/default+扩容共存/会话进度隔离/并发会话不串扰 + 团队落盘按会话）+ `tests/test_gateway_components.py` 新增 1 例（role_agents 汇总），全量 519 passed、2 skipped。
 
 ## ADR-033: 岗位化 1:N 过渡·第二台阶（N38，1:N 默认启用：并行子任务独立 worker）
 
@@ -427,7 +427,7 @@
 
 **反例**: 不做复杂度档位的 LLM 判定（纯规则分级，零额外调用、可测）；不做逐子任务的复杂度选实例（本迭代只作用于单 agent 路径，规划分支仍走 worker 实例，可用 `_worker_config` 定制）；不做实例级长期记忆仓库（沿用 N39 语义：checkpointer + 系统提示词注入）；不做实例声明的热重载（配置在 spawn 时一次性读取）。
 
-**落地记录（已完成，2026-08-24，N40）**: `chuan/role_config.py`（`RoleInstanceConfig` + `load_role_instances` 解析器，`tier_for` 角色覆盖）+ `chuan/role.py`（`PersonaRole(..., instance_config)` + `_classify_complexity`（重型标记纯规则）+ `_resolve_tier_instance` + `_ensure_configured_instance`（声明式实例创建/复用/回退）+ dispatch 单 agent 路径按复杂度选实例）+ `chuan/gateway/agent_spawner.py`（从 config_path+brains 加载并注入所有岗位）+ `config/config.yaml`（`role_instances` 段，opt-in 示例）。测试：`tests/test_role_config.py` 新增 12 例（缺段/缺文件默认/解析 tiers+instances+roles/brain 解析/角色覆盖/未知 brain 回退/复杂度分级/选声明式实例/无配置回退/缺失实例回退/dispatch 重型用声明实例/simple 用默认/同 id 复用），全量 540 passed、2 skipped。
+**落地记录（已完成，2026-08-24，N40）**: `chuan/role_config.py`（`RoleInstanceConfig` + `load_role_instances` 解析器，`tier_for` 角色覆盖）+ `chuan/role.py`（`Department(..., instance_config)` + `_classify_complexity`（重型标记纯规则）+ `_resolve_tier_instance` + `_ensure_configured_instance`（声明式实例创建/复用/回退）+ dispatch 单 agent 路径按复杂度选实例）+ `chuan/gateway/agent_spawner.py`（从 config_path+brains 加载并注入所有岗位）+ `config/config.yaml`（`role_instances` 段，opt-in 示例）。测试：`tests/test_role_config.py` 新增 12 例（缺段/缺文件默认/解析 tiers+instances+roles/brain 解析/角色覆盖/未知 brain 回退/复杂度分级/选声明式实例/无配置回退/缺失实例回退/dispatch 重型用声明实例/simple 用默认/同 id 复用），全量 540 passed、2 skipped。
 
 ## ADR-036: 动态实例池与自动扩缩容（N41，config.yaml role_instances.pool）
 
@@ -437,7 +437,7 @@
 - **扩容遵守上限**（`_assign_wave_instances`）：开启动态池时并行 worker 上限取 `pool.max_instances`（否则回退 `CHUAN_PARALLEL_WORKERS`）；
 - **自动缩容**（`reclaim_idle`）：非默认实例按「最近使用」升序，回收空闲超 TTL 且超出下限的部分；`_maybe_reclaim_idle` 在每次 dispatch 开工前调用（仅开启动态池时），回收数上报进度事件 `pool_reclaim`；
 - **观测**（`pool_stats`）：暴露 `size/min/max/idle/uses`，`gateway/heartbeat.py` 汇总进健康报告（`pools` + `pool_total`），状态栏可看「池 3/3」；
-- **接线**：`RoleInstanceConfig` 增加 `pool` 字段，`load_role_instances` 解析 `role_instances.pool`（缺省字段回默认值，缺段 → None 关闭自动扩缩容）；`PersonaRole.__init__` 从 `instance_config.pool` 取池配置；`AgentSpawner` 已注入 `instance_config`，无需改动。
+- **接线**：`RoleInstanceConfig` 增加 `pool` 字段，`load_role_instances` 解析 `role_instances.pool`（缺省字段回默认值，缺段 → None 关闭自动扩缩容）；`Department.__init__` 从 `instance_config.pool` 取池配置；`AgentSpawner` 已注入 `instance_config`，无需改动。
 
 **理由**: N38/N40 让岗位可并行建多个 worker/声明式实例，但实例建了不回收会随会话累积、浪费资源；「按需扩容 + 空闲回收 + 保留下限」是池化标准形态，让岗位在并行高峰时铺开、闲时自动收敛，且全程确定性可测、零额外 LLM 调用。缩容后再次需要时按需重建，扩容闭环不丢能力。
 
@@ -832,7 +832,7 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 
 ## ADR-056: checkpoint 历史修复·删错 checkpoint 修复（2026-08-26）
 
-**背景**: LLM 提供方要求 ToolMessage 紧跟 AIMessage 的 tool_calls 之后（否则 `INVALID_CHAT_HISTORY` / `insufficient tool messages`）。上次会话在工具执行前中断时，checkpoint 会留下「有 tool_calls 无 ToolMessage」的悬空 AIMessage，重启重放被拒。chuan 已有两层防护：`BuiltinAgent.run()` 每次执行前内部调 `_repair_history`；`PersonaRole._ensure_agent_history_ok` 对带 `_repair_history` 的 agent 类型兜底。
+**背景**: LLM 提供方要求 ToolMessage 紧跟 AIMessage 的 tool_calls 之后（否则 `INVALID_CHAT_HISTORY` / `insufficient tool messages`）。上次会话在工具执行前中断时，checkpoint 会留下「有 tool_calls 无 ToolMessage」的悬空 AIMessage，重启重放被拒。chuan 已有两层防护：`BuiltinAgent.run()` 每次执行前内部调 `_repair_history`；`Department._ensure_agent_history_ok` 对带 `_repair_history` 的 agent 类型兜底。
 
 **排查发现（2026-08-26）**: `_repair_history` 首选「删最新 checkpoint 回退干净状态」，但 `_delete_latest_checkpoint` 用 `ORDER BY checkpoint_id DESC LIMIT 1` 定位「最新」checkpoint——checkpoint_id 是 UUID（随机），字符串排序 ≠ 时间顺序，会删到字典序更大的旧 checkpoint、漏删真正含悬空 tool_call 的最新 checkpoint，400 依旧；且未按 `checkpoint_ns` 过滤（checkpoints 表主键含 checkpoint_ns）。
 
@@ -880,7 +880,7 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 
 ## ADR-059: 四象限协作框架固化为 prompt 型技能（N30，2026-08-27）
 
-**背景**: 复杂任务（做方案 / 需求分析 / 项目设计 / RPA 等）协作时，agent 容易陷入两类毛病：一是不确认目标就闷头干、反复无意义提问；二是一味顺从用户、不点破需求漏洞。项目已有 N30「技能即记忆」——prompt 型技能（触发关键词命中即在开工前注入复用做法，`PersonaRole._maybe_inject_skill` 前置到任务文本），本框架值得固化为这样一个可复用技能。
+**背景**: 复杂任务（做方案 / 需求分析 / 项目设计 / RPA 等）协作时，agent 容易陷入两类毛病：一是不确认目标就闷头干、反复无意义提问；二是一味顺从用户、不点破需求漏洞。项目已有 N30「技能即记忆」——prompt 型技能（触发关键词命中即在开工前注入复用做法，`Department._maybe_inject_skill` 前置到任务文本），本框架值得固化为这样一个可复用技能。
 
 **决策**: 新增 `skills/collab_quadrant.yaml`（prompt 型，无 handler/mcp_server → `Skill.kind == "prompt"`，`to_tool()` 返回 None 不进工具列表，仅走 `find_prompt_skill` 注入）：
 - **触发关键词**：四象限 / 协作框架 / 协作模式 / 按四象限 / 做方案 / 设计方案 / 方案设计 / 一个方案 / 需求分析 / 项目设计 / 复杂任务（子串匹配、大小写不敏感）。
@@ -926,21 +926,21 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 
 ## ADR-062: 执行链路术语重构 —— 角色升格为「部门/事业部」（2026-08-27）
 
-**背景**: 用户指出「角色」一词名不副实：N37–N41 岗位化 1:N 过渡后，`PersonaRole` 承载「岗位 + N 个 agent 实例 + 实例池 + 复杂度分级」，本质上已是独立经营单元，不再是单个角色。用户提出「幕僚长像总公司控制多个子公司」的类比，并要求调整命名。
+**背景**: 用户指出「角色」一词名不副实：N37–N41 岗位化 1:N 过渡后，`Department` 承载「岗位 + N 个 agent 实例 + 实例池 + 复杂度分级」，本质上已是独立经营单元，不再是单个角色。用户提出「幕僚长像总公司控制多个子公司」的类比，并要求调整命名。
 
 **决策**: 采用「公司/部门/岗位/外包」四层类比，但保留「角色」为部门级概念（**不是**引入独立中间层）：
 - **幕僚长 = 总公司 CEO**（唯一入口，控股 + 调度，不干活）——保留原名；
-- **角色 = 部门/事业部**（`PersonaRole` 的对外身份：部门 CEO / 事业部总经理，管多个岗位）——**用户可见层改叫「部门」，代码类名 `PersonaRole` 与变量 `_workers` 保持不动**（内部实现名）；
+- **角色 = 部门/事业部**（`Department` 的对外身份：部门 CEO / 事业部总经理，管多个岗位）——**用户可见层改叫「部门」，代码类名 `Department` 与变量 `_workers` 保持不动**（内部实现名）；
 - **岗位 = agent 实例**（`spawn_agent` 的 `"writer"/"analyst"` 等实例 id；复杂度分级 heavy/medium/simple 选实例）；
 - **外包 = sub_agent**（`call_xxx` 工具，command/prompt/mcp，过 guard 闸）。
 
 **关键澄清（秘书是不是团队）**: 部门可大可小，**不是所有角色都是多岗位团队**——默认 1:1（一个部门一个岗位：秘书/管家/陪伴等轻量岗）；配置 `role_instances`/并行 worker 后才升级为多岗位（编程部门 = 编码岗/分析岗…）。"子公司"只是部门的可选形态，不是身份。
 
-**与既有「团队协作」的区分**: chuan-os 已有 `TeamOrchestrator`（`team_orchestrator.py`，跨部门临时组队并行完成总任务）。「部门」（PersonaRole 的对外身份）是常设组织结构；「团队」（TeamOrchestrator）是跨部门的临时作战编组——两者并存，措辞上「部门/事业部」描述常设单元，「团队协作」描述临时编组。
+**与既有「团队协作」的区分**: chuan-os 已有 `TeamOrchestrator`（`team_orchestrator.py`，跨部门临时组队并行完成总任务）。「部门」（Department 的对外身份）是常设组织结构；「团队」（TeamOrchestrator）是跨部门的临时作战编组——两者并存，措辞上「部门/事业部」描述常设单元，「团队协作」描述临时编组。
 
 **理由**: 用户可见层（README/TUI/文档）是人与系统对话的入口，术语准确能显著降低理解成本；代码类名/变量是纯内部实现名，改名（91 处引用）收益低、回归风险高，且 ADR-014/ROADMAP N37–N41 的「岗位」表述已成为既有决策轨迹，全量改名会破坏文档与代码的可追溯对应。
 
-**反例**: 不做代码全量改名（PersonaRole→Team/Division）；不引入独立「事业部」中间对象（`PersonaRole` 本身就是部门，再加一层是过度建模）；不把「秘书」强行描述成多岗位团队（一人一岗同样成立）。
+**反例**: 不做代码全量改名（Department→Team/Division）；不引入独立「事业部」中间对象（`Department` 本身就是部门，再加一层是过度建模）；不把「秘书」强行描述成多岗位团队（一人一岗同样成立）。
 
 **落地记录（已完成，2026-08-27）**: README.md 首段/核心特性表/项目结构「角色」→「部门/事业部」；TUI `app.py` 三处「角色班底」→「部门班底」（面板标题、渲染、命令面板）。代码类名与测试未动。纯用户可见层改动。
 
@@ -969,4 +969,4 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 
 **反例**: 不做部分改名/别名（`Division = PersonaRole`）——别名只解决"能看懂"不解决"主名误导"，留两个名字反而增加认知负担；不把文件名也改成 `department.py`（牵连 14 处 import，且该模块岗位配置类命名会随之别扭）。
 
-**落地记录（已完成，2026-08-29）**: `scripts/_rename_personarole.py` 一次性替换 91 处（chuan 15 文件 + tests 9 文件），随后删除脚本；`chuan/role.py` docstring、`runtime_supervisor.py`/`agent_spawner.py` 类型注解与 docstring、docs/guide/DEVELOPMENT.md 概念表/关系行/目录结构同步更新。历史文档（DECISIONS ADR-014/021/030…、ROADMAP N 节点、LEARNINGS、archive、diagrams html）中的 `PersonaRole` **保留**（历史轨迹，指同一对象，已由本文档 ADR-063 桥接说明）。全量回归 **875 passed / 2 skipped**。
+**落地记录（已完成，2026-08-29）**: `scripts/_rename_personarole.py` 一次性替换 91 处（chuan 15 文件 + tests 9 文件），随后删除脚本；`chuan/role.py` docstring、`runtime_supervisor.py`/`agent_spawner.py` 类型注解与 docstring、docs/guide/DEVELOPMENT.md 概念表/关系行/目录结构同步更新。**后续（同日）** `scripts/_unify_department.py` 将历史文档（DECISIONS ADR-014/021/030…、ROADMAP N 节点、LEARNINGS、archive、diagrams html）中的旧名 `PersonaRole` 全部统一为 `Department`（63 处），仅本文档 ADR-063 决策记录保留旧名以保真追溯。全量回归 **875 passed / 2 skipped**。

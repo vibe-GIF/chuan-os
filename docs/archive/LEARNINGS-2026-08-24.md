@@ -43,4 +43,4 @@
 
 ## 6. 接入点：重试循环的「重试前」查询
 
-redirect 应用在 `PersonaRole._run_subtask` 的重试前（`attempt > 0` 时查死胡同）——失败发生后、重试前是最佳干预时机：abort 直接 break、switch_agent 换池内 agent、inject_hint 把提示语拼进 prompt 前缀。轨迹记录 `_record_step` 在每次尝试后统一记录，供下次判定。
+redirect 应用在 `Department._run_subtask` 的重试前（`attempt > 0` 时查死胡同）——失败发生后、重试前是最佳干预时机：abort 直接 break、switch_agent 换池内 agent、inject_hint 把提示语拼进 prompt 前缀。轨迹记录 `_record_step` 在每次尝试后统一记录，供下次判定。

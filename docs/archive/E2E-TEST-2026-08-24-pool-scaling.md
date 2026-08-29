@@ -38,7 +38,7 @@ N41 给岗位实例池加了**自动扩缩容**（[ADR-036](../plan/DECISIONS.md
 pool_config: RolePoolConfig(min_instances=1, max_instances=3, idle_ttl=300.0)
 ```
 
-`config.yaml role_instances.pool` 经 `load_role_instances` → `RoleInstanceConfig.pool` → `PersonaRole._pool_config` 全链路注入，14 个岗位（含幕僚长）动态池全部启用。
+`config.yaml role_instances.pool` 经 `load_role_instances` → `RoleInstanceConfig.pool` → `Department._pool_config` 全链路注入，14 个岗位（含幕僚长）动态池全部启用。
 
 ### 3.2 扩容：遵守 max 上限 ✅
 

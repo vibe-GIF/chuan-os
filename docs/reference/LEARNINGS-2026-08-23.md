@@ -160,7 +160,7 @@
 | dsh-agent-teams | chuan-os 对应 | 差距 |
 |---|---|---|
 | Captain | 幕僚长 | 已有路由，缺任务拆分和汇总 |
-| Durable members | PersonaRole + AgentPool | 阶段1单选完成，缺可恢复 |
+| Durable members | Department + AgentPool | 阶段1单选完成，缺可恢复 |
 | Dependency-aware tasks | AgentHarness 任务状态机 | ✅ 已落地（N21 状态机升级，2026-08-23）：pending→ready→running→done/failed + depends_on DAG 自动推进 |
 | Safe takeover (attempt_id) | `_schedule()` 原子认领 + `claimed_by` | 部分落地（单进程版：ready→running 只一次防重复执行；缺 attempt_id 撤销旧 worker 语义） |
 | Direct messaging | 无（全走幕僚长） | 可加黑板共享，成员间直接消息 |

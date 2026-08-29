@@ -68,7 +68,7 @@ AI 知识库分 7 层，从低到高：
 
 **关键分界线**：L5（索引）→ L6（向量）的分界是「**几百个 vs 上千个文件**」——与 Karpathy「此规模不需要 RAG」、chuan「363 篇卡在分水岭前」的结论一致，**三方独立盖章**。
 **独特价值**：L3「从做到造」讲人机分工（你提供身份/判断，AI 提供执行），是 Karpathy 没强调的成长视角；L7 有营销色彩，对 chuan 更实在的是把 L2/L3 的沉淀闭环做扎实。
-**→ 已落地 N26/ADR-021（并入 wiki 第 6 类 `howto/`）**：HowToStore 委托 `Wiki.write`（白得 index/lint/双链/归并留痕）+ `howto_save/find/show` + `PersonaRole` 开工前自动注入「参考做法」，实现「重复做→沉淀原子→下次自动复用」闭环。
+**→ 已落地 N26/ADR-021（并入 wiki 第 6 类 `howto/`）**：HowToStore 委托 `Wiki.write`（白得 index/lint/双链/归并留痕）+ `howto_save/find/show` + `Department` 开工前自动注入「参考做法」，实现「重复做→沉淀原子→下次自动复用」闭环。
 
 ---
 
