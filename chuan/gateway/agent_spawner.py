@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from chuan.runtime_supervisor import RuntimeSupervisor
 
-from chuan.role import PersonaRole
+from chuan.role import Department
 
 
 class AgentSpawner:
@@ -43,7 +43,7 @@ class AgentSpawner:
             if getattr(persona, "external", False):
                 continue
             try:
-                sup._workers[name] = PersonaRole(
+                sup._workers[name] = Department(
                     persona, sup._agent_pool, sup.memory.checkpointer,
                     on_progress=sup._on_progress_cb,
                     monitor=getattr(sup, "supervisor_monitor", None),
@@ -56,7 +56,7 @@ class AgentSpawner:
 
         chief_persona = sup._persona_loader.get_persona("chief_of_staff")
         if chief_persona is not None:
-            sup._chief_role = PersonaRole(
+            sup._chief_role = Department(
                 chief_persona, sup._agent_pool, sup.memory.checkpointer,
                 on_progress=sup._on_progress_cb,
                 monitor=getattr(sup, "supervisor_monitor", None),

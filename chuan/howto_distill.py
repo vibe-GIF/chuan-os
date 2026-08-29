@@ -12,7 +12,7 @@ N26 的沉淀靠 agent 显式调 ``howto_save``（免费模型不会主动干）
    双链全复用），``discard`` 则丢弃
 
 设计约束（与项目一致）：确定性核心；LLM 不进关键路径；全程旁路，绝不
-阻断主流程答复（``PersonaRole._wrap_result`` 挂接）。
+阻断主流程答复（``Department._wrap_result`` 挂接）。
 """
 
 from __future__ import annotations

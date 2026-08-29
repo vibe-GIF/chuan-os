@@ -199,7 +199,7 @@ def build_howto_tools(memory: Any) -> list[Tool]:
     """基于 chuan.memory.Memory 生成 L3「从做到造」知识原子工具（N26）。
 
     沉淀：agent 识别到「可复用的怎么做过程」时 howto_save（同名更新）。
-    复用：开工前 howto_find 自查 / PersonaRole 自动注入 suggest。
+    复用：开工前 howto_find 自查 / Department 自动注入 suggest。
     """
     from chuan.howto import HowToStore
 

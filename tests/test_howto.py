@@ -7,7 +7,7 @@ from pathlib import Path
 from chuan.howto import HowToStore
 from chuan.memory import Memory
 from chuan.memory_tools import build_howto_tools
-from chuan.role import PersonaRole
+from chuan.role import Department
 
 
 def _memory(tmp_path: Path) -> Memory:
@@ -109,7 +109,7 @@ def test_role_inject_howto_when_memory_present(tmp_path: Path) -> None:
         "部署周报", "每周五 汇总部署 周报", "1. 汇总变更\n2. 生成周报", source="s"
     )
     persona = SimpleNamespace(name="worker", display_name="工", description="")
-    role = PersonaRole(persona, agent_pool=None, memory=memory)
+    role = Department(persona, agent_pool=None, memory=memory)
 
     out = role._maybe_inject_howto("帮我部署周报，周五要发")
     assert "参考做法" in out and "部署周报" in out and "帮我部署周报" in out
@@ -122,5 +122,5 @@ def test_role_inject_howto_no_memory_unchanged(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
     persona = SimpleNamespace(name="worker", display_name="工", description="")
-    role = PersonaRole(persona, agent_pool=None, memory=None)
+    role = Department(persona, agent_pool=None, memory=None)
     assert role._maybe_inject_howto("随便什么任务") == "随便什么任务"

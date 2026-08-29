@@ -22,7 +22,7 @@ def test_collab_quadrant_trigger_hits() -> None:
     # 直接 matches
     assert registry.get("collab_quadrant").matches("用四象限框架帮我做方案")
     assert registry.get("collab_quadrant").matches("做个需求分析")
-    # find_prompt_skill：注入入口（PersonaRole._maybe_inject_skill 用）
+    # find_prompt_skill：注入入口（Department._maybe_inject_skill 用）
     assert registry.find_prompt_skill("按四象限协作处理这个项目") is not None
     assert registry.find_prompt_skill("帮我设计一个方案") is not None
 

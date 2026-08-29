@@ -19,7 +19,7 @@ N26/N27 已把「怎么做」沉淀成知识原子（howto，wiki 第 6 类）�
 既有做法来」。二者可独立确认，各有各的队列上限。
 
 设计约束（与项目一致）：确定性核心；LLM 不进关键路径；全程旁路，绝不阻断
-主流程答复（``PersonaRole._wrap_result`` 挂接）。
+主流程答复（``Department._wrap_result`` 挂接）。
 """
 
 from __future__ import annotations

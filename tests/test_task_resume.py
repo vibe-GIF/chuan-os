@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 
 from chuan.gateway.task_resume import RoleTaskResumeStore
-from chuan.role import PersonaRole, SubTask
+from chuan.role import Department, SubTask
 
 
 def _store(tmp_path: Path) -> RoleTaskResumeStore:
@@ -84,10 +84,10 @@ def test_result_truncated_to_limit(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------- #
-# PersonaRole：_rehydrate_plan + _run_subtask resume 复用
+# Department：_rehydrate_plan + _run_subtask resume 复用
 # --------------------------------------------------------------------- #
 def test_rehydrate_plan_builds_subtasks() -> None:
-    plan = PersonaRole._rehydrate_plan([
+    plan = Department._rehydrate_plan([
         {"id": "s1", "description": "查资料", "agent": "auto", "depends_on": []},
         {"id": "s2", "description": "写总结", "agent": "auto", "depends_on": ["s1"]},
     ])
@@ -98,7 +98,7 @@ def test_rehydrate_plan_builds_subtasks() -> None:
 
 def test_rehydrate_plan_empty_raises() -> None:
     try:
-        PersonaRole._rehydrate_plan([])
+        Department._rehydrate_plan([])
     except Exception:
         return
     raise AssertionError("空缓存 plan 应抛错")
@@ -148,9 +148,9 @@ class _P:
         self.description = "测试"
 
 
-def _make_role(store: RoleTaskResumeStore) -> tuple[PersonaRole, _RecorderPool]:
+def _make_role(store: RoleTaskResumeStore) -> tuple[Department, _RecorderPool]:
     pool = _RecorderPool()
-    role = PersonaRole(_P("研究"), pool, memory=None, resume_store=store)
+    role = Department(_P("研究"), pool, memory=None, resume_store=store)
     return role, pool
 
 

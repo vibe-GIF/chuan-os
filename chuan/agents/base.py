@@ -1,6 +1,6 @@
 """AgentInstance 基类 —— 所有干活 agent 的统一接口。
 
-岗位（PersonaRole）只跟这个接口交互，不关心 agent 是内置 ReAct 还是外部子进程。
+岗位（Department）只跟这个接口交互，不关心 agent 是内置 ReAct 还是外部子进程。
 """
 
 from __future__ import annotations

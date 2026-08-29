@@ -1,11 +1,11 @@
 """Agent 池 —— 管理常驻 agent 实例，支持动态 spawn 临时 agent。
 
-岗位（PersonaRole）从池子里取 agent 调用：
+岗位（Department）从池子里取 agent 调用：
 - 常驻池：启动时注册，复用（pi / OpenCode / Claude Code / prime_agent）
 - 临时 spawn：岗位按需创建内置 ReAct 实例，配不同 prompt 和工具，用完销毁
 
 阶段1：常驻池管理外来 command agent；内置 agent 通过 get_builtin_agent()
-按需创建（由 PersonaRole 懒加载持有），不进常驻池。
+按需创建（由 Department 懒加载持有），不进常驻池。
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ class AgentPool:
     def get_builtin_agent(self, persona_name: str, checkpointer: Any = None) -> BuiltinAgent:
         """调用 persona_loader.birth() 创建内置 ReAct agent，包装为 BuiltinAgent。
 
-        不注册到常驻池，由调用方（PersonaRole）持有。
+        不注册到常驻池，由调用方（Department）持有。
         persona_loader.birth() 内部有缓存，重复调用返回同一图实例。
 
         Args:

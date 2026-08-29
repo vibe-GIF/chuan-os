@@ -157,9 +157,9 @@ def test_role_dispatch_prepends_aci_context(tmp_path: Path) -> None:
         def get_builtin_agent(self, name, checkpointer=None):
             return FakeAgent()
 
-    from chuan.role import PersonaRole
+    from chuan.role import Department
 
-    role = PersonaRole(
+    role = Department(
         SimplePersona("housekeeper"), FakePool(), memory=memory
     )
     import asyncio
@@ -172,7 +172,7 @@ def test_role_dispatch_prepends_aci_context(tmp_path: Path) -> None:
 
 def test_role_dispatch_no_aci_passthrough(tmp_path: Path) -> None:
     """不传 aci_context 时任务原样（不注入）。"""
-    from chuan.role import PersonaRole
+    from chuan.role import Department
 
     seen: dict[str, str] = {}
 
@@ -198,7 +198,7 @@ def test_role_dispatch_no_aci_passthrough(tmp_path: Path) -> None:
 
     import asyncio
 
-    role = PersonaRole(SimplePersona("housekeeper"), FakePool(), memory=None)
+    role = Department(SimplePersona("housekeeper"), FakePool(), memory=None)
     asyncio.run(role.dispatch("简单任务"))
     assert seen["task"] == "简单任务"
 

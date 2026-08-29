@@ -165,6 +165,7 @@ persona 不出声、幕僚长不路由、封驳不拦，后面全白搭。
 - **N56 已完成**：P4 媒体生成（ADR-052，自研）落地。`skills/handlers/media_gen.py`（`_tone`（正弦+指数包络）/`_synth_music`（C 大调或 A 小调和弦琶音，prompt 情绪词确定性映射 bpm：欢快=150/悲伤=70/缺省=110）/`_write_wav`（标准库 wave 写 16-bit PCM 44100Hz）/`_out_dir`/`media_generate`（kind=music 真合成落 wav；video/image 后端占位提示待接 seedance/seedream；未知类型/异常静默降级））+ `skills/media_gen.yaml`（type handler，触发词：生成音乐/配乐/做首歌/生成视频/生成图片/bgm）。测试：`tests/test_media_gen.py` 10 例（skill 注册/触发词/音乐写合法 wav 读回/输出目录自动建/悲伤比欢快长/确定性/视频占位/图片占位/未知类型降级/默认目录不抛），全量 702 passed、2 skipped。
 - **术语重构（已完成，2026-08-27）**：执行链路术语统一为「公司/部门/岗位/外包」四层（幕僚长=总公司 CEO，角色=部门/事业部，岗位=agent 实例，外包=sub_agent），见 ADR-062。落地：README「角色」→「部门/事业部」、TUI「角色班底」→「部门班底」；`programmer` 部门对外显示名「编程」→「IT」（职责扩为写码/运维/网络/硬件/系统管理，路由关键词与音色/主题同步）。仅用户可见层，代码类名 `PersonaRole`/变量 `_workers`/测试未动（内部实现名）。
 - **A9 家族办公室版落地（已完成，2026-08-27）**：以 [FAMILY-OFFICE.md](FAMILY-OFFICE.md)（A10 家办建制定稿）为蓝本裁剪部门建制，A9 = 8 部门 + 2 系统底座。**新增** 财务（finance，专职会计）、税务（tax，税务顾问）两部门（deny code_execution/opencode）；**删除** 新媒体/自由职业/学习/陪伴/社交/社交学习 6 部门（A10 无对应）。同步：幕僚长路由关键词与可派发名单、voices.yaml 音色、TUI theme 配色/小像、README/DEVELOPMENT「14 角色班底」→「10 部门」。见 ADR-062 补充落地。personas 现有 10 部门（财富幕僚：幕僚长/秘书/律师/IT/研究/投资/财务/税务；生活贴身：管家/保镖）。
+- **代码类名对齐（已完成，2026-08-29）**：`PersonaRole` → `Department` 全量改名（ADR-063），91 处机械替换（chuan 15 文件 + tests 9 文件），`role.py` 文件名保留（模块含岗位配置类）。历史文档中的 `PersonaRole` 保留作轨迹。全量回归 **875 passed / 2 skipped**。
 
 ## 已知遗留
 

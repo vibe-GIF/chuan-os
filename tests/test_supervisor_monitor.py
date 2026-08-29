@@ -267,9 +267,9 @@ def test_similarity_cjk_partial_overlap() -> None:
 # ---------------------------------------------------------------------- #
 def test_monitor_none_shortcircuit_via_role() -> None:
     """_check_dead_end/_record_step 在无 monitor 时直接返回，不抛错。"""
-    from chuan.role import PersonaRole
+    from chuan.role import Department
 
-    role = PersonaRole.__new__(PersonaRole)  # 跳过 __init__
+    role = Department.__new__(Department)  # 跳过 __init__
     role._monitor = None
     role.pool = None
     role.name = "工程师"

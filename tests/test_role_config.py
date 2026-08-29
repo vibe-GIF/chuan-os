@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chuan.role import PersonaRole, RoleAgentConfig, SubTask
+from chuan.role import Department, RoleAgentConfig, SubTask
 from chuan.role_config import RoleInstanceConfig, load_role_instances
 
 from tests.test_role import FakeAgent, FakeModel, _Persona, _PARALLEL_JSON
@@ -129,13 +129,13 @@ def test_load_role_instances_missing_pool_is_none(tmp_path: Path) -> None:
     assert rc.pool is None
 
 
-# ── 复杂度分级 + 选实例（PersonaRole）───────────────
+# ── 复杂度分级 + 选实例（Department）───────────────
 
 
 def _role_with_config(
     pool: _N38Pool, rc: RoleInstanceConfig | None
-) -> PersonaRole:
-    return PersonaRole(
+) -> Department:
+    return Department(
         _Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON),
         instance_config=rc,
     )

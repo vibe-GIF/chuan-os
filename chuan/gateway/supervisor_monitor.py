@@ -72,7 +72,7 @@ def _ngrams(text: str) -> set[str]:
 class SupervisorMonitor:
     """监督者 —— 执行轨迹记录 + 死胡同检测 + redirect 指导。
 
-    生命周期由 PersonaRole / RuntimeSupervisor 驱动：
+    生命周期由 Department / RuntimeSupervisor 驱动：
         monitor.start_trace(role, trace_id)
         monitor.record_step(...)          # 每次 agent 尝试后
         monitor.check_dead_end(...)       # 重试前查询是否死胡同 → redirect

@@ -11,7 +11,7 @@ N26 落地后并入 wiki（ADR-021 反例已更新）：howto 是 wiki 的第 6 
 - 原子结构：`## 触发场景`（何时复用）+ `## 怎么做`（步骤/经验坑），tools 走 tags
 - 复用现有 Memory 的 FTS5 索引召回（`memory.recall(namespaces=["notes/howto"])`）
 - 沉淀由 agent 显式 `howto_save`（识别到可复用过程时），避免自动脑补
-- 复用在 `PersonaRole` 开工前自动注入（`suggest`，确定性、无 LLM）
+- 复用在 `Department` 开工前自动注入（`suggest`，确定性、无 LLM）
 
 设计约束（与项目一致）：纯本地、确定性可测；LLM 不进入读写/召回关键路径。
 """

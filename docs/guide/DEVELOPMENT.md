@@ -100,11 +100,11 @@ guard 安全闸审核输出
 | 概念               | 定义                                         | 调度者          | 例子                           |
 | ---------------- | ------------------------------------------ | ------------ | ---------------------------- |
 | **部门（persona）**  | 事业部/部门，独立人设/职责/工具/大脑，可大可小（默认一人一岗）          | 幕僚长（总公司 CEO） | 律师、IT、研究                     |
-| **岗位（agent 实例）** | 部门下挂的干活实例，可多个（编码岗/分析岗…）；部门 = 项目经理（ADR-014） | 部门持有         | PersonaRole 下的实例             |
+| **岗位（agent 实例）** | 部门下挂的干活实例，可多个（编码岗/分析岗…）；部门 = 项目经理（ADR-014） | 部门持有         | Department 下的实例              |
 | **agent**        | 岗位的执行者（外包工程师），从 agent\_pool 取              | 岗位调度         | 内置 ReAct / prime\_agent / pi |
 | **sub\_agent**   | 部门可调用的外部 AI agent，对岗位来说是工具                 | 部门调用         | pi、prime\_agent、OpenCode     |
 
-**关系**：幕僚长（总公司 CEO）→ 部门/事业部（PersonaRole，项目经理）→ 岗位（agent 实例，按复杂度 1:1→1:N）→ sub\_agent（外包重活）
+**关系**：幕僚长（总公司 CEO）→ 部门/事业部（Department，项目经理）→ 岗位（agent 实例，按复杂度 1:1→1:N）→ sub\_agent（外包重活）
 
 ### 3.2 三档大脑（ADR-003）
 
@@ -174,7 +174,7 @@ chuan-os/
 ├── chuan/                     # 核心引擎
 │   ├── main.py                # CLI 入口
 │   ├── runtime_supervisor.py  # 幕僚长运行时（组装 Gateway + 各组件）
-│   ├── role.py                # 岗位类 PersonaRole（规划/调度/汇总，ADR-014）
+│   ├── role.py                # 部门类 Department（规划/调度/汇总，ADR-014/062/063）
 │   ├── agent_pool.py          # agent 池（常驻 + 动态 spawn）
 │   ├── persona_loader.py      # 角色加载器（双格式兼容）
 │   ├── orchestrator.py        # 轻量路由（显式锁定/关键词）

@@ -10,7 +10,7 @@
 - `RoleTaskResumeStore.save_plan` 规划落定即写；`save_result` 每个子任务
   完成即写（旁路，异常吞掉）。
 - `resume_plan(session_id)` 读回上次 plan 与已完成结果，供
-  `PersonaRole.resume()` 复用已完成子任务、只跑未完成部分。
+  `Department.resume()` 复用已完成子任务、只跑未完成部分。
 
 幂等与安全：
 - session_id 白名单清洗（复用 team_state 的清洗规则，防路径注入）。

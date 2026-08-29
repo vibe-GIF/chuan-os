@@ -955,3 +955,18 @@ ROADMAP/DECISIONS 个别早期表述把「向量语义召回」说成已实现�
 **删除部门（6）**：新媒体（social_media）、自由职业（freelance_agent）、学习（school_agent）、陪伴（companion）、社交（social_agent）、社交学习（social_learning）——A10 模型无对应岗位，其中社交职责并入外联/人脉池待 A10 版评估。
 
 **同步改动**：`personas/chief_of_staff/config.yaml`（keyword_scoring 移除 5 个已删部门关键词 + 新增 finance/tax；can_dispatch_to 移除 6 个 + 新增 finance/tax）、`config/voices.yaml`（删 6 部门音色 + 新增 财务=zh-CN-XiaoxuanNeural / 税务=zh-CN-YunxiNeural）、`chuan/tui/theme.py`（ROLE_COLORS/ROLE_AVATARS 删 6 + 新增 财务=#22d3ee/₿、税务=#a3e635/§）、README.md / docs/guide/DEVELOPMENT.md（「14 角色班底」→「10 部门（A9）」）、ROADMAP.md。personas 目录现有 10 个部门（财富幕僚：幕僚长/秘书/律师/IT/研究/投资/财务/税务；生活贴身：管家/保镖）。
+
+## ADR-063: 代码类名 PersonaRole → Department 全量改名（2026-08-29）
+
+**背景**: ADR-062 决定用户可见层改叫「部门」，但保留代码类名 `PersonaRole`（内部实现名）。用户后续提出质疑：`PersonaRole` 承载「岗位 + N 个 agent 实例 + 实例池 + 复杂度分级」，本质已是独立经营单元（部门），类名还叫 `PersonaRole` 会让阅读代码的人误以为仍是"单个角色"，认知成本高。ADR-062 的反例（91 处引用改动收益低）需要重新权衡：**用户可见层与代码层术语不一致，长期维护成本更高**。
+
+**决策**: 方案 C 全量改名。`PersonaRole` → `Department`（部门），全库 91 处引用（chuan 15 文件 + tests 9 文件）一次性机械替换，`chuan/role.py` 模块 docstring 同步更新为「部门（Department）—— 事业部/部门 = 项目经理」。文件名 `role.py` **保留**（该模块同时含 `RoleAgentConfig`/`RolePoolConfig`/`SubTask` 等岗位/子任务配置类，文件名 `role` 语义仍相关；改名文件将牵连 14 处 import 路径，收益低）。
+
+**理由**:
+- 类名是阅读代码的第一入口，`Department` 让"部门 = 项目经理，管多个 agent 实例"的语义自明；
+- 91 处替换是纯机械、无歧义标识符替换（全库唯一），回归由 875 例全量测试兜底（ADR-062 高估了风险）；
+- 文件名保留减少 import 链改动，与内部岗位配置类共存更自然。
+
+**反例**: 不做部分改名/别名（`Division = PersonaRole`）——别名只解决"能看懂"不解决"主名误导"，留两个名字反而增加认知负担；不把文件名也改成 `department.py`（牵连 14 处 import，且该模块岗位配置类命名会随之别扭）。
+
+**落地记录（已完成，2026-08-29）**: `scripts/_rename_personarole.py` 一次性替换 91 处（chuan 15 文件 + tests 9 文件），随后删除脚本；`chuan/role.py` docstring、`runtime_supervisor.py`/`agent_spawner.py` 类型注解与 docstring、docs/guide/DEVELOPMENT.md 概念表/关系行/目录结构同步更新。历史文档（DECISIONS ADR-014/021/030…、ROADMAP N 节点、LEARNINGS、archive、diagrams html）中的 `PersonaRole` **保留**（历史轨迹，指同一对象，已由本文档 ADR-063 桥接说明）。全量回归 **875 passed / 2 skipped**。

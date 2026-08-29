@@ -6,5 +6,5 @@
 - mcp:      通过 MCP 协议调用（预留）
 
 所有 agent 统一继承 AgentInstance 基类，暴露 async run(task, context) 接口。
-岗位（PersonaRole）从 agent_pool 取 agent 调用，不关心具体实现。
+岗位（Department）从 agent_pool 取 agent 调用，不关心具体实现。
 """

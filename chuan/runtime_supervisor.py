@@ -1,9 +1,9 @@
 """N4 幕僚长核心 —— 岗位化调度（阶段1）。
 
-用户唯一入口，负责路由到各类 persona 岗位（PersonaRole）。
+用户唯一入口，负责路由到各类 persona 岗位（Department）。
 阶段1架构：
-- _workers: dict[str, PersonaRole] —— 每个 persona 对应一个岗位
-- PersonaRole.dispatch() 从 AgentPool 取 agent 执行（单选，不拆分不并行）
+- _workers: dict[str, Department] —— 每个 persona 对应一个岗位
+- Department.dispatch() 从 AgentPool 取 agent 执行（单选，不拆分不并行）
 - 路由：Orchestrator 关键词匹配 → 幕僚长 LLM 兜底选岗 → 对应岗位 dispatch
 - 不再使用 langgraph-supervisor 的 create_supervisor（它需要 CompiledStateGraph）
 
@@ -39,7 +39,7 @@ from chuan.memory import Memory
 from chuan.mission import MissionManager
 from chuan.orchestrator import Orchestrator
 from chuan.persona_loader import PersonaLoader
-from chuan.role import PersonaRole
+from chuan.role import Department
 from chuan.routines import RoutineManager
 from chuan.scheduler import ProactiveScheduler
 from chuan.skill_creator import SkillCreator
@@ -128,8 +128,8 @@ class RuntimeSupervisor:
             self._agent_pool.tool_filter = lambda tools: self.tool_market.enabled_tools()
 
         self._orchestrator: Orchestrator | None = None
-        self._workers: dict[str, PersonaRole] = {}
-        self._chief_role: PersonaRole | None = None
+        self._workers: dict[str, Department] = {}
+        self._chief_role: Department | None = None
         self._is_awake: bool = False
         # 巩固 worker 状态（供 TUI 状态栏展示）：None=未运行/运行中，否则为结果描述
         self.consolidation_status: str | None = None
@@ -1182,7 +1182,7 @@ class RuntimeSupervisor:
         return self._is_awake
 
     @property
-    def workers(self) -> dict[str, PersonaRole]:
+    def workers(self) -> dict[str, Department]:
         """当前可用的岗位字典。"""
         return dict(self._workers)
 
@@ -1190,7 +1190,7 @@ class RuntimeSupervisor:
         """列出当前已加载的岗位名。"""
         return list(self._workers.keys())
 
-    def get_worker(self, name: str) -> PersonaRole | None:
+    def get_worker(self, name: str) -> Department | None:
         """按名取岗位。"""
         return self._workers.get(name)
 

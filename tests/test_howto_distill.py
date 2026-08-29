@@ -9,7 +9,7 @@ from chuan.agents.base import AgentResult
 from chuan.howto import HowToStore
 from chuan.howto_distill import HowToDistiller
 from chuan.memory import Memory
-from chuan.role import PersonaRole
+from chuan.role import Department
 
 
 def _memory(tmp_path: Path) -> Memory:
@@ -192,11 +192,11 @@ def test_staging_list_returns_all(tmp_path: Path) -> None:
 # --------------------------------------------------------------------- #
 # 角色挂接（_wrap_result 收尾自动沉淀）
 # --------------------------------------------------------------------- #
-def _role(memory: Memory) -> PersonaRole:
+def _role(memory: Memory) -> Department:
     from types import SimpleNamespace
 
     persona = SimpleNamespace(name="worker", display_name="工", description="")
-    return PersonaRole(persona, agent_pool=None, memory=memory)
+    return Department(persona, agent_pool=None, memory=memory)
 
 
 def test_role_wrap_result_distills_success(tmp_path: Path) -> None:
@@ -226,7 +226,7 @@ def test_role_no_memory_unchanged(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
     persona = SimpleNamespace(name="worker", display_name="工", description="")
-    role = PersonaRole(persona, agent_pool=None, memory=None)
+    role = Department(persona, agent_pool=None, memory=None)
     out = role._wrap_result(
         AgentResult(content=_content(), agent_name="builtin", success=True), _task()
     )

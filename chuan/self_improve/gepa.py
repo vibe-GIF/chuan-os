@@ -4,7 +4,7 @@
 角色私有记忆 ``MEMORY.md``（仅 ADR-013 目录格式角色），供下次任务读回。
 
 GEPA 四步在现有链路中的映射：
-- Generate / Execute → ``PersonaRole.dispatch`` / ``_execute``（已完成）
+- Generate / Execute → ``Department.dispatch`` / ``_execute``（已完成）
 - Assess  → :func:`assess` 确定性评估，产出「可沉淀的一条经验」
 - Preserve → :func:`preserve` 追加到 ``<角色目录>/MEMORY.md``
 

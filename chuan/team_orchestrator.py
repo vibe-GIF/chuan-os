@@ -11,7 +11,7 @@
 - 黑板 = 磁盘真相（延续 team_state 哲学）：context.md 分工 + <role>.md 产出，
   并行各岗拿到同一份分工上下文（避免重复劳动），产出落到共享工作区（聚合/复盘/审计）；
 - 并行执行复用幕僚长常驻事件循环（run_coroutine_threadsafe），真并行不阻塞；
-- 汇总确定性分节（不调 LLM），与 PersonaRole._summarize 同风格。
+- 汇总确定性分节（不调 LLM），与 Department._summarize 同风格。
 """
 
 from __future__ import annotations

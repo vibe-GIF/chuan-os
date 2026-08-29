@@ -9,7 +9,7 @@ import yaml
 
 from chuan.adapters.skill_loader import Skill, SkillRegistry
 from chuan.memory import Memory
-from chuan.role import PersonaRole
+from chuan.role import Department
 from chuan.runtime_supervisor import RuntimeSupervisor
 from chuan.skill_creator import SkillCreator, _derive_keywords
 
@@ -155,7 +155,7 @@ def test_find_prompt_skill_ignores_handler_and_misses(tmp_path: Path) -> None:
 # 角色注入（旁路安全路径）
 # --------------------------------------------------------------------- #
 def test_role_inject_skill_no_memory_returns_unchanged() -> None:
-    role = PersonaRole.__new__(PersonaRole)
+    role = Department.__new__(Department)
     role._memory = None
     assert role._maybe_inject_skill("帮我部署周报") == "帮我部署周报"
     assert role._inject_reference("帮我部署周报") == "帮我部署周报"

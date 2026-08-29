@@ -1,9 +1,9 @@
-"""岗位（PersonaRole）—— 角色当岗位用，不直接干活，只做规划/调度/汇总。
+"""部门（Department）—— 事业部/部门 = 项目经理，不直接干活，只做规划/调度/汇总。
 
-核心设计（ADR-014 岗位架构）:
-- 岗位 = 项目经理，不写代码，只拆任务、选 agent、协调、汇总
+核心设计（ADR-014 岗位架构 / ADR-062 角色升格为部门）:
+- 部门 = 项目经理（可大可小，默认一人一岗），只拆任务、选 agent、协调、汇总
 - agent = 外包工程师，从 agent_pool 取，拿到具体子任务干活
-- 一个岗位可以调用多个 agent 并行/串行开发
+- 一个部门可以调用多个 agent 并行/串行开发
 
 dispatch() 四步:
 1. PLAN      → 拆分子任务（含依赖关系）
@@ -137,8 +137,8 @@ _PLAN_MIN_LEN = 24  # 字符数
 _MAX_SUBTASKS = 6
 
 
-class PersonaRole:
-    """岗位类 —— 规划/调度/汇总，不直接执行。
+class Department:
+    """部门类 —— 规划/调度/汇总，不直接执行。
 
     阶段3：dispatch() 对复合任务走 PLAN → EXECUTE（分波并行）→ SUMMARIZE，
     简单任务/规划失败保持阶段1的单 agent 行为。
@@ -536,7 +536,7 @@ class PersonaRole:
                     raise PlanError(f"子任务 '{st.id}' 依赖不存在的 '{dep}'")
                 if dep == st.id:
                     raise PlanError(f"子任务 '{st.id}' 依赖自己")
-        PersonaRole._topo_order(subtasks)  # 成环在此抛 PlanError
+        Department._topo_order(subtasks)  # 成环在此抛 PlanError
         return subtasks
 
     @staticmethod
@@ -840,7 +840,7 @@ class PersonaRole:
         if not text:
             return True
         # 整段是一次工具调用文本（非代码块、非长文）
-        if len(text) < 200 and PersonaRole._TOOL_CALL_RE.match(text):
+        if len(text) < 200 and Department._TOOL_CALL_RE.match(text):
             return True
         # 原始 MCP/工具 JSON 返回壳（return_code/return_data 风格）
         if text.startswith("{") and (

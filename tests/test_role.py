@@ -12,7 +12,7 @@ import pytest
 
 from chuan.agent_pool import AgentPool
 from chuan.agents.base import AgentResult
-from chuan.role import PersonaRole, PlanError, RoleAgentConfig, RolePoolConfig, SubTask
+from chuan.role import Department, PlanError, RoleAgentConfig, RolePoolConfig, SubTask
 
 
 # ── 测试替身 ─────────────────────────────────────────
@@ -87,10 +87,10 @@ class FakeModel:
 
 def _role(
     model: FakeModel | None = None, resident: dict | None = None, teams_root: str | None = None
-) -> tuple[PersonaRole, FakePool]:
+) -> tuple[Department, FakePool]:
     pool = FakePool(resident=resident, model=model)
     return (
-        PersonaRole(_Persona(), pool, planner_model=model, teams_root=teams_root),
+        Department(_Persona(), pool, planner_model=model, teams_root=teams_root),
         pool,
     )
 
@@ -182,7 +182,7 @@ def test_topo_order_respects_deps_and_stability() -> None:
         SubTask(id="s2", description="独立B"),
         SubTask(id="s3", description="依赖AB", depends_on=["s1", "s2"]),
     ]
-    order = PersonaRole._topo_order(plan)
+    order = Department._topo_order(plan)
     assert [st.id for st in order] == ["s1", "s2", "s3"]  # 无依赖保序
 
 
@@ -255,7 +255,7 @@ async def test_subtask_prompt_injects_context_and_output_rules() -> None:
     assert "【输出要求】" in s2_prompt
 
 
-def pool_prompts(role: PersonaRole) -> tuple[str, str]:
+def pool_prompts(role: Department) -> tuple[str, str]:
     pool = role.pool  # type: ignore[attr-defined]
     return pool.default.calls[0][0], pool.default.calls[1][0]
 
@@ -265,16 +265,16 @@ def pool_prompts(role: PersonaRole) -> tuple[str, str]:
 
 def test_is_degenerate_tool_call_text() -> None:
     """整段工具调用文本（免费模型常见退化）必须被判退化。"""
-    assert PersonaRole._is_degenerate('list_dir(".")') is True
-    assert PersonaRole._is_degenerate('bash("ls -la")') is True
-    assert PersonaRole._is_degenerate('read_file("README.md")') is True
-    assert PersonaRole._is_degenerate("") is True
-    assert PersonaRole._is_degenerate("   ") is True
+    assert Department._is_degenerate('list_dir(".")') is True
+    assert Department._is_degenerate('bash("ls -la")') is True
+    assert Department._is_degenerate('read_file("README.md")') is True
+    assert Department._is_degenerate("") is True
+    assert Department._is_degenerate("   ") is True
 
 
 def test_is_degenerate_raw_json_shell() -> None:
     """原始 MCP JSON 返回壳必须被判退化。"""
-    assert PersonaRole._is_degenerate(
+    assert Department._is_degenerate(
         '{"return_code": 0, "return_message": "", "return_data": ["chuan", "docs"]}'
     ) is True
 
@@ -282,17 +282,17 @@ def test_is_degenerate_raw_json_shell() -> None:
 def test_is_degenerate_normal_reply_is_kept() -> None:
     """正常回复不误伤：长解释、含工具名的正文、markdown 代码块。"""
     # 正常长答复（含结论）
-    assert PersonaRole._is_degenerate(
+    assert Department._is_degenerate(
         "根据调研，XX市场主要有三家竞品：A 公司主打低端、B 公司……（以下省略两百字）"
     ) is False
     # 正文提到工具名但不是纯工具调用
-    assert PersonaRole._is_degenerate(
+    assert Department._is_degenerate(
         "我先调用了 list_dir 查看了目录，发现没有相关资料，建议补充信息。"
     ) is False
     # 普通短答复
-    assert PersonaRole._is_degenerate("今天武汉晴，26 度。") is False
+    assert Department._is_degenerate("今天武汉晴，26 度。") is False
     # 代码块里的工具调用（围栏包裹，非整段裸调用）
-    assert PersonaRole._is_degenerate('```\nlist_dir(".")\n```') is False
+    assert Department._is_degenerate('```\nlist_dir(".")\n```') is False
 
 
 async def test_execute_marks_degenerate_result_failed(
@@ -655,9 +655,9 @@ def test_count_waves() -> None:
         SubTask(id="s2", description="b", depends_on=["s1"]),
         SubTask(id="s3", description="c", depends_on=["s2"]),
     ]
-    assert PersonaRole._count_waves(independent) == 1
-    assert PersonaRole._count_waves(diamond) == 2
-    assert PersonaRole._count_waves(chain) == 3
+    assert Department._count_waves(independent) == 1
+    assert Department._count_waves(diamond) == 2
+    assert Department._count_waves(chain) == 3
 
 
 # ── 阶段3：specialist 临时 spawn ────────────────────
@@ -686,7 +686,7 @@ async def test_specialist_agent_cached_by_persona() -> None:
     assert len([p for p in _pool_of(role).spawn_calls]) == 1
 
 
-def _pool_of(role: PersonaRole) -> FakePool:
+def _pool_of(role: Department) -> FakePool:
     return role.pool  # type: ignore[return-value]
 
 
@@ -704,7 +704,7 @@ async def test_specialist_falls_back_without_model() -> None:
 async def test_dispatch_emits_progress_events() -> None:
     events: list[dict] = []
     pool = FakePool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(
+    role = Department(
         _Persona(), pool, planner_model=None, on_progress=events.append
     )
     # planner_model=None 时 _resolve_planner 会从 pool.get_model 解析
@@ -729,7 +729,7 @@ async def test_progress_callback_exception_does_not_break() -> None:
         raise RuntimeError("回调炸了")
 
     pool = FakePool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(_Persona(), pool, on_progress=boom)
+    role = Department(_Persona(), pool, on_progress=boom)
     reply = await role.dispatch("先查A的资料，再查B的资料")
     assert "结果:" in reply  # 执行不受回调异常影响
 
@@ -868,7 +868,7 @@ async def test_concurrent_sessions_do_not_clobber_progress() -> None:
     """同一岗位并行服务两个会话：进度各写各的，不互相覆盖。"""
     pool = FakePool(model=FakeModel(_PARALLEL_JSON))
     pool.default = SlowAgent("builtin")
-    role = PersonaRole(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
+    role = Department(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
     replies = await asyncio.gather(
         role.dispatch("先查A的资料，再查B的资料", session_id="A"),
         role.dispatch("先查A的资料，再查B的资料", session_id="B"),
@@ -911,7 +911,7 @@ class _N38Pool(FakePool):
 async def test_parallel_auto_subtasks_get_distinct_workers() -> None:
     """N38：一波 ≥2 个并行 auto 子任务各分独立 worker 实例（1:N 默认启用）。"""
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
+    role = Department(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
     await role._execute([SubTask(id="s1", description="查A"),
                          SubTask(id="s2", description="查B")])
     assert role._agents.get("worker0") is not None
@@ -928,7 +928,7 @@ async def test_parallel_worker_cap_limits_instances(
     """N38：CHUAN_PARALLEL_WORKERS 封顶并行 worker 数（超出复用）。"""
     monkeypatch.setenv("CHUAN_PARALLEL_WORKERS", "1")
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
+    role = Department(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
     await role._execute([SubTask(id="s1", description="查A"),
                          SubTask(id="s2", description="查B")])
     assert role.agent_count() == 1  # 只建 worker0，s1/s2 复用
@@ -938,7 +938,7 @@ async def test_parallel_worker_cap_limits_instances(
 async def test_sequential_subtasks_stay_on_default() -> None:
     """N38：串行（有依赖）子任务仍走默认实例，不建 worker。"""
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(_Persona(), pool)
+    role = Department(_Persona(), pool)
     await role._execute([SubTask(id="s1", description="查A"),
                          SubTask(id="s2", description="汇总", depends_on=["s1"])])
     assert role.agent_count() == 1  # 只有默认实例
@@ -1002,7 +1002,7 @@ async def test_worker_respects_role_config() -> None:
         system_prompt="worker专用", checkpointer=checkpointer,
     )
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
+    role = Department(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
     role._worker_config = cfg
     await role._execute([SubTask(id="s1", description="查A"),
                          SubTask(id="s2", description="查B")])
@@ -1021,7 +1021,7 @@ async def test_worker_respects_role_config() -> None:
 async def test_worker_execution_updates_usage_stats() -> None:
     """N41：worker 实例实际执行后 last_used_at/uses 更新（扩缩容依据）。"""
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
+    role = Department(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
     await role._execute([SubTask(id="s1", description="查A"),
                          SubTask(id="s2", description="查B")])
     assert role._instance_stats["worker0"].uses == 1
@@ -1110,7 +1110,7 @@ def test_pool_stats_reports_capacity_and_usage() -> None:
 async def test_parallel_cap_uses_pool_max() -> None:
     """N41：开启动态池时扩容上限取 pool.max_instances（而非 CHUAN_PARALLEL_WORKERS）。"""
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(
+    role = Department(
         _Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON),
         pool_config=RolePoolConfig(min_instances=1, max_instances=1, idle_ttl=300.0),
     )
@@ -1123,7 +1123,7 @@ async def test_parallel_cap_uses_pool_max() -> None:
 async def test_dispatch_auto_reclaims_idle_workers() -> None:
     """N41 集成：dispatch 开工前自动回收空闲 worker（保留 min 下限）。"""
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(
+    role = Department(
         _Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON),
         pool_config=RolePoolConfig(min_instances=1, max_instances=3, idle_ttl=0.0),
     )
@@ -1139,7 +1139,7 @@ async def test_dispatch_auto_reclaims_idle_workers() -> None:
 async def test_dispatch_does_not_reclaim_without_pool_config() -> None:
     """N41：未开启动态池（pool_config=None）→ 开工不回收，兼容旧行为。"""
     pool = _N38Pool(model=FakeModel(_PARALLEL_JSON))
-    role = PersonaRole(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
+    role = Department(_Persona(), pool, planner_model=FakeModel(_PARALLEL_JSON))
     await role._execute([SubTask(id="s1", description="查A"),
                          SubTask(id="s2", description="查B")])
     await role.dispatch("今天天气如何")
@@ -1161,14 +1161,14 @@ class _RepairableAgent(FakeAgent):
 
 @pytest.mark.asyncio
 async def test_ensure_history_ok_calls_agent_repair_history() -> None:
-    """PersonaRole._ensure_agent_history_ok 调 BuiltinAgent 型 agent 的 _repair_history
+    """Department._ensure_agent_history_ok 调 BuiltinAgent 型 agent 的 _repair_history
     并透传 thread_id；无此方法的 agent 直接跳过不报错。"""
     rep = _RepairableAgent()
-    await PersonaRole._ensure_agent_history_ok(rep, "t_abc")
+    await Department._ensure_agent_history_ok(rep, "t_abc")
     assert rep.repairs == ["t_abc"]
 
     plain = FakeAgent()
-    await PersonaRole._ensure_agent_history_ok(plain, "t_xyz")  # 不应抛错
+    await Department._ensure_agent_history_ok(plain, "t_xyz")  # 不应抛错
 
 
 @pytest.mark.asyncio
@@ -1179,7 +1179,7 @@ async def test_ensure_history_ok_repair_failure_is_silent() -> None:
         async def _repair_history(self, config: dict[str, Any]) -> None:
             raise RuntimeError("checkpointer gone")
 
-    await PersonaRole._ensure_agent_history_ok(_BoomAgent(), "t_boom")
+    await Department._ensure_agent_history_ok(_BoomAgent(), "t_boom")
 
 
 @pytest.mark.asyncio
